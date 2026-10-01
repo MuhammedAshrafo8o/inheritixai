@@ -8,7 +8,12 @@
     "build": "next build",
     "start": "next start -p 8443",
     "typecheck": "tsc --noEmit",
-    "format": "oxfmt ."
+    "format": "oxfmt .",
+    "payload": "payload",
+    "generate:types": "payload generate:types",
+    "generate:importmap": "payload generate:importmap",
+    "migrate": "payload migrate",
+    "seed": "node --experimental-strip-types scripts/seed.ts"
   },
   "dependencies": {
     "@payloadcms/db-postgres": "3.90.2",

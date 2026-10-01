@@ -1,3 +1,4 @@
+import { withPayload } from "@payloadcms/next/withPayload"
 import type { NextConfig } from "next"
 
 const nextConfig: NextConfig = {
@@ -8,6 +9,16 @@ const nextConfig: NextConfig = {
   },
   async redirects() {
     return [
+      {
+        source: "/work",
+        destination: "/projects",
+        permanent: true,
+      },
+      {
+        source: "/ar/work",
+        destination: "/ar/projects",
+        permanent: true,
+      },
       {
         source: "/work/:slug",
         destination: "/projects/:slug",
@@ -22,4 +33,4 @@ const nextConfig: NextConfig = {
   },
 }
 
-export default nextConfig
+export default withPayload(nextConfig)

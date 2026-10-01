@@ -1,12 +1,28 @@
-import { siteMetadata } from "@/content/site-metadata"
-import "../globals.css"
+import config from "@/payload.config"
+import "@payloadcms/next/css"
+import { handleServerFunctions, RootLayout } from "@payloadcms/next/layouts"
+import React from "react"
+import { importMap } from "./admin/importMap"
 
-export const metadata = siteMetadata
-
-export default function PayloadRootLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <html lang="en" dir="ltr">
-      <body>{children}</body>
-    </html>
-  )
+type Args = {
+  children: React.ReactNode
 }
+
+const Layout = ({ children }: Args) => (
+  <RootLayout
+    config={config}
+    importMap={importMap}
+    serverFunction={async function (args) {
+      "use server"
+      return handleServerFunctions({
+        ...args,
+        config,
+        importMap,
+      })
+    }}
+  >
+    {children}
+  </RootLayout>
+)
+
+export default Layout

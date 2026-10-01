@@ -1,41 +1,119 @@
-# figma-make-app
+# Inheritix — Design & Engineering Platform
 
-React + Vite + Tailwind CSS project running inside Figma Make.
+Inheritix is an enterprise-grade digital products and operations platform built with **Next.js 15 (App Router)**, **TypeScript**, **Payload CMS 3.x**, and **PostgreSQL**.
 
-## Development Server
+The visual reference and user interface faithfully preserve the approved Figma Make design system (typography, spacing, responsive layout, Arabic RTL, motion reveals, and device mockups).
 
-A Vite development server is **already running** on `$PORT` (default 8443). You don't need to start it manually.
+---
 
-- Preview URL: The user can access the running app through the preview panel
-- Hot reload: Changes to source files are reflected immediately
+## Architecture Overview
 
-## Project Structure
+- **Web Application Framework**: Next.js 15.4 (App Router) with React 19 and Tailwind CSS v4
+- **Content Management System**: Payload CMS 3.90 (`@payloadcms/next`, `@payloadcms/ui`, `@payloadcms/richtext-lexical`)
+- **Database Layer**: PostgreSQL via `@payloadcms/db-postgres` with Drizzle ORM and versioned migrations
+- **Routing**:
+  - English: `/(english)` route group (`/`, `/services`, `/products`, `/projects`, `/about`, `/insights`, `/contact`)
+  - Arabic: `/(arabic)` route group with RTL (`/ar`, `/ar/services`, `/ar/products`, `/ar/projects`, `/ar/about`, `/ar/insights`, `/ar/contact`)
+  - Admin Dashboard: `/(payload)` route group at `/admin`
+  - CMS REST & GraphQL APIs: `/api/[...slug]`, `/api/graphql`
+  - On-Demand Cache Invalidation: `/api/cache/projects`
+  - Authenticated Draft Preview: `/api/preview`
 
-This is the canonical project structure. Start with task-relevant files below. Only follow imports or inspect other files when required, when a documented path is missing, or when the repository contradicts this guide.
+---
 
-- `src/main.tsx` - React entrypoint; imports `src/index.css` and mounts `src/App.tsx` into the `#root` element
-- `src/App.tsx` - Primary application component and the usual starting point for UI work
-- `src/index.css` - Global CSS entrypoint and Tailwind CSS v4 import
-- `index.html` - Vite HTML shell containing the `#root` element and loading `src/main.tsx`
-- `package.json` - Project dependencies and the Vite build, development, preview, and formatting scripts
-- `vite.config.ts` - Vite configuration with React, Tailwind CSS v4, and Figma Make plugins plus the `@` alias for `src`
-- `.mise.toml` - Toolchain versions for Node.js and pnpm
+## Local Development Setup
 
-## Dependencies
+### 1. Requirements
+- Node.js >= 20.9.0 (v22 recommended)
+- PostgreSQL 16 (or Docker Compose)
 
-- Runtime: React 19 and React DOM 19
-- Styling: Tailwind CSS v4 with the `@tailwindcss/vite` plugin
-- Build tooling: Vite 8, TypeScript 5.7, and `@vitejs/plugin-react`
-- Formatting: oxfmt
+### 2. Environment Configuration
+Copy `.env.example` to `.env.local` and configure your credentials:
+```bash
+cp .env.example .env.local
+```
 
-## Styling
+Key environment variables:
+- `NEXT_PUBLIC_SITE_URL`: Canonical site origin (default: `https://inheritixai.com`)
+- `DATABASE_URI`: PostgreSQL connection string (e.g. `postgresql://postgres:postgres@127.0.0.1:5432/inheritix`)
+- `PAYLOAD_SECRET`: 48+ character cryptographically secure secret
+- `PREVIEW_SECRET`: Secret token for draft preview authorization
 
-This project uses **Tailwind CSS v4** through the `@tailwindcss/vite` plugin configured in `vite.config.ts`. `src/index.css` imports Tailwind with `@import 'tailwindcss';`. Use Tailwind utility classes directly in JSX and put global CSS or Tailwind v4 theme customization in `src/index.css`. This scaffold does not need a Tailwind config file or PostCSS config.
+### 3. Start PostgreSQL Database
+Using Docker Compose (recommended):
+```bash
+docker compose up -d
+```
+Or start your local PostgreSQL service and create the database `inheritix`:
+```sql
+CREATE DATABASE inheritix;
+```
 
-`src/main.tsx` imports `src/index.css`, so global font wiring belongs in `src/index.css`. Keep CSS `@import` statements first, then add any `@font-face` rules and font-family defaults there.
+### 4. Database Migrations
+Run versioned migrations:
+```bash
+npm run migrate
+```
+Migrations are located in `src/migrations/`.
 
-## Code quality
+### 5. Content Seed & First Admin Creation
+Run the idempotent seed script to populate default users, globals, services, products, and articles:
+```bash
+npm run seed
+```
 
-- Use double quotes for strings containing apostrophes (`"We're here to help"`), or escape them in single-quoted strings. An unescaped apostrophe in a single-quoted string breaks the build.
-- Ensure JSX tags are closed and braces are balanced.
-- Export components as default exports.
+Default credentials created:
+- **Administrator**: `admin@inheritixai.com` (Role: `admin`)
+- **Editor**: `editor@inheritixai.com` (Role: `editor`)
+
+### 6. Development Server
+Start the Next.js development server:
+```bash
+npm run dev
+```
+- Public Website (English): `http://localhost:8443/`
+- Public Website (Arabic): `http://localhost:8443/ar`
+- Payload Admin: `http://localhost:8443/admin`
+
+---
+
+## Content Model
+
+### Collections
+1. **Users** (`users`): Authentication collection with `admin` and `editor` roles. Only admins can manage users and permissions.
+2. **Media** (`media`): File uploads stored in `public/media/` with localized `alt` and `description` text.
+3. **Clients** (`clients`): Client organizations with logo, localized logo description, and website.
+4. **Projects** (`projects`): Client case studies and projects with draft/published versioning, slug redirect tracking, cover images, sector, year, services, reorderable external links, and modular content blocks (`intro`, `richText`, `image`, `metrics`, `quote`, `cta`).
+5. **Products** (`products`): Inheritix proprietary products (LOGISTTEX, Fen El Menu) with workflow steps, value metrics, device mockups, and FAQs.
+6. **Services** (`services`): Core capabilities (Custom software, SaaS, ERP, Mobile apps, AI automation, WordPress) with problem/deliverables/process sections.
+7. **Posts** (`posts`): Insights and articles with author byline, table of contents, reading time, and typography covers.
+8. **Categories** (`categories`): Topic tags for articles.
+9. **Authors** (`authors`): Editorial contributors.
+10. **Redirects** (`redirects`): Permanent 308 redirects with loop prevention.
+
+### Globals
+- **SiteSettings** (`site-settings`): Site name, brand colors, default SEO, social links, footer invitation.
+- **Navigation** (`navigation`): Header navigation links and call-to-action button.
+- **HomePage** (`page-home`): Hero copy, showcase visibility, section headers, 4-phase approach, perspective quote.
+- **AboutPage** (`page-about`): Manifesto, core principles, architectural visual.
+- **ContactPage** (`page-contact`): Direct contact email, note, and Milestone 3 boundary notice.
+- **ListingPages** (`listing-pages`): Headers for Services, Products, Projects, and Insights listings.
+- **SiteLabels** (`site-labels`): Common UI button and link labels.
+
+---
+
+## Production Deployment & Storage
+
+### Media Storage
+In local development, uploads are persisted to `public/media/`. In production, configure an S3/Cloudflare R2 adapter via `@payloadcms/storage-s3`.
+
+### Production Build
+```bash
+npm run build
+npm run start
+```
+
+### Milestone Boundaries
+- **Milestone One (Completed)**: Visual design baseline, route scaffolding, development fixtures.
+- **Milestone Two (Completed)**: Payload CMS 3.x, PostgreSQL adapter, admin dashboard, content modeling, refactored server-rendered App Router pages, client interactions, drafts, and redirects.
+- **Milestone Three (Upcoming)**: Contact submission database persistence, automated email delivery pipeline (Resend integration), and analytics dashboard.

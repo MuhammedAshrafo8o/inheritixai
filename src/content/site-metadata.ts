@@ -1,7 +1,7 @@
 import type { Metadata } from "next"
 
 export const siteMetadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://inheritix.com"),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://inheritixai.com"),
   title: {
     default: "Inheritix — Beautifully designed. Seriously engineered.",
     template: "%s | Inheritix",
