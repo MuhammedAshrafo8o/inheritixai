@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1200" role="img" aria-labelledby="title desc">
+  <title id="title">Abstract bilingual service platform interface</title>
+  <desc id="desc">Layered cobalt and white interface panels with English and Arabic typographic lines.</desc>
+  <rect width="1600" height="1200" fill="#00ccff"/>
+  <g transform="translate(210 120) rotate(-5 590 480)">
+    <rect width="1180" height="960" rx="42" fill="#10213b"/>
+    <circle cx="95" cy="90" r="22" fill="#00ccff"/>
+    <path d="M150 90h170" stroke="#fff" stroke-width="22" stroke-linecap="round"/>
+    <rect x="90" y="180" width="1000" height="650" rx="30" fill="#f7f8fb"/>
+    <path d="M165 270h450M165 335h335" stroke="#10213b" stroke-width="32" stroke-linecap="round"/>
+    <path d="M1015 270H710M1015 335H770" stroke="#1047eb" stroke-width="32" stroke-linecap="round"/>
+    <rect x="165" y="455" width="390" height="255" rx="24" fill="#1047eb"/>
+    <rect x="625" y="455" width="390" height="255" rx="24" fill="#fff" stroke="#d9dfea" stroke-width="4"/>
+    <path d="M220 530h230M220 585h160M690 530h250M760 585h180" stroke="#fff" stroke-width="20" stroke-linecap="round"/>
+    <path d="M690 530h250M760 585h180" stroke="#10213b" stroke-width="20" stroke-linecap="round"/>
+  </g>
+</svg>

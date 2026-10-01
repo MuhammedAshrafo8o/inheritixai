@@ -1,0 +1,37 @@
+{
+  "name": "inheritix-website",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "next dev -p 8443",
+    "build": "next build",
+    "start": "next start -p 8443",
+    "typecheck": "tsc --noEmit",
+    "format": "oxfmt ."
+  },
+  "dependencies": {
+    "@payloadcms/db-postgres": "3.90.2",
+    "@payloadcms/next": "3.90.2",
+    "@payloadcms/richtext-lexical": "3.90.2",
+    "@payloadcms/ui": "3.90.2",
+    "graphql": "^16.11.0",
+    "next": "15.4.11",
+    "payload": "3.90.2",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.14",
+    "@types/node": "^22.18.6",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "oxfmt": "^0.2.0",
+    "tailwindcss": "^4.1.14",
+    "typescript": "^5.9.2"
+  },
+  "packageManager": "pnpm@10.17.1",
+  "engines": {
+    "node": ">=20.9.0"
+  }
+}

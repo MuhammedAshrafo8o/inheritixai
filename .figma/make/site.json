@@ -1,0 +1,10 @@
+{
+  "description": "Showcases Inheritix's software solutions with immersive product demos, detailed services, and insights, enabling clients to explore and initiate projects easily.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}

@@ -1,0 +1,72 @@
+# ── Dependencies ─────────────────────────────────────────────────────────────
+node_modules/
+
+# ── Build output ──────────────────────────────────────────────────────────────
+dist/
+build/
+.next/
+out/
+.turbo/
+
+# ── TypeScript incremental build ──────────────────────────────────────────────
+*.tsbuildinfo
+
+# ── Vite ──────────────────────────────────────────────────────────────────────
+.vite/
+vite.config.*.timestamp-*
+
+# ── Environment / secrets ─────────────────────────────────────────────────────
+# Keep .env.example (placeholders only) — ignore everything else
+.env
+.env.local
+.env.development
+.env.development.local
+.env.production
+.env.production.local
+.env.test
+.env.test.local
+.env.*.local
+
+# ── Database files ────────────────────────────────────────────────────────────
+*.db
+*.sqlite
+*.sqlite3
+dump.sql
+*.sql.gz
+/postgres-data/
+/data/
+
+# ── Payload CMS media uploads (managed by the runtime, not source-controlled) ─
+/public/media/
+/media/
+
+# ── Dev server logs ───────────────────────────────────────────────────────────
+*.log
+*-debug.log*
+logs/
+.next-dev.out
+.next-dev.err
+
+# ── Cache ─────────────────────────────────────────────────────────────────────
+.cache/
+.npm/
+
+# ── Figma Make agent internals ────────────────────────────────────────────────
+.claude-replay.*
+.tmp-*
+/.figma/design-context/
+/.plugins/
+/.opencode-skills/
+
+# ── ZIP archives (prototype exports) ─────────────────────────────────────────
+# The ORIGINAL reference copy lives in the repo root as the approved design.
+# Both ZIPs are tracked via Git LFS (.gitattributes) so they don't bloat history.
+# If LFS is unavailable on a clone, remove the two lines below to exclude them.
+
+# ── OS & editor ──────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/settings.json
+*.suo
+*.user
