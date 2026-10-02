@@ -1,0 +1,15 @@
+== PREVIEW_SECRET blank
+  FAIL  unexpected error — Error: cache invalidation (before inspection) impossible: PREVIEW_SECRET is not set (or blank)
+  FAIL  cleanup: invalidate project cache after restore (featured-muqqehar) — cache invalidation (after restore) impossible: PREVIEW_SECRET is not set (or blank)
+  FAIL  all cleanup operations succeeded — 5/6 succeeded
+  PASS  project Arabic locale fields match their original values (every column) — matches original: "no Arabic row"
+6 passed, 3 failed (run muqwh5j9)
+Payload command crossed the execution boundary and did not complete successfully. Its database outcome may be indeterminate; do not retry it automatically. Run 'npm run migrate:status' and inspect the database before deciding whether to retry.
+
+== PREVIEW_SECRET rejected (deliberately wrong test value)
+  FAIL  unexpected error — Error: cache invalidation (before inspection) rejected: HTTP 401 {"error":"Unauthorized"}
+  FAIL  cleanup: invalidate project cache after restore (featured-muqqehar) — cache invalidation (after restore) rejected: HTTP 401 {"error":"Unauthorized"}
+  FAIL  all cleanup operations succeeded — 5/6 succeeded
+  PASS  project Arabic locale fields match their original values (every column) — matches original: "no Arabic row"
+6 passed, 3 failed (run muqwhjkq)
+Payload command crossed the execution boundary and did not complete successfully. Its database outcome may be indeterminate; do not retry it automatically. Run 'npm run migrate:status' and inspect the database before deciding whether to retry.

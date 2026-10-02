@@ -1,0 +1,26 @@
+Project featured-muqqehar (id 10); real Arabic row absent — snapshotted.
+■ Restoration after a simulated assertion failure
+  PASS  apostrophes + empty string + NULL: original stored exactly (parameterized write) — {"title":"O'Brien's “quoted” project","summary":"","intro":null}
+  PASS  apostrophes + empty string + NULL: cleanup ran after the simulated failure
+  PASS  apostrophes + empty string + NULL: every column matches the original — matches original: {"title":"O'Brien's “quoted” project","summary":"","intro":null}
+  PASS  NULL title, SQL-like text, empty intro: original stored exactly (parameterized write) — {"title":null,"summary":"it's ''double''; DROP TABLE x; --","intro":""}
+  PASS  NULL title, SQL-like text, empty intro: cleanup ran after the simulated failure
+  PASS  NULL title, SQL-like text, empty intro: every column matches the original — matches original: {"title":null,"summary":"it's ''double''; DROP TABLE x; --","intro":""}
+  PASS  all empty strings: original stored exactly (parameterized write) — {"title":"","summary":"","intro":""}
+  PASS  all empty strings: cleanup ran after the simulated failure
+  PASS  all empty strings: every column matches the original — matches original: {"title":"","summary":"","intro":""}
+  PASS  all NULL: original stored exactly (parameterized write) — {"title":null,"summary":null,"intro":null}
+  PASS  all NULL: cleanup ran after the simulated failure
+  PASS  all NULL: every column matches the original — matches original: {"title":null,"summary":null,"intro":null}
+  PASS  no Arabic row: original stored exactly (parameterized write) — null
+  PASS  no Arabic row: cleanup ran after the simulated failure
+  PASS  no Arabic row: every column matches the original — matches original: "no Arabic row"
+  PASS  row deleted mid-test: cleanup ran after the simulated failure
+  PASS  row deleted mid-test: re-inserted with every column (incl. id) matching — id 55 — matches original: {"title":"Rock 'n' roll","summary":"","intro":null}
+■ Cleanup runner
+  PASS  remaining cleanup still runs after a failing task — first,failing,last
+  PASS  the failing task is reported (and would fail the run) — failing restore: simulated restoration failure
+■ Real data
+  PASS  real Arabic row restore succeeded
+  PASS  real Arabic row matches its snapshot (every column) — matches original: "no Arabic row"
+21 passed, 0 failed

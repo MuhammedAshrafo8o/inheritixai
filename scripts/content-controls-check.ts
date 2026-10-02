@@ -38,8 +38,9 @@ let group = ""
 const restore: CleanupTask[] = []
 let payload: Payload | null = null
 let projectSnapshot: ProjectLocaleSnapshot | null = null
-/** Parent-id used for the restoration self-verification sub-test. */
+/** Project used for the restoration self-verification sub-test. */
 let selfVerifyParentId: number | null = null
+let selfVerifySlug: string | null = null
 
 function section(name: string) {
   group = name
@@ -175,6 +176,7 @@ async function main() {
     const parentId = Number(publishedProject.id)
     selfVerifyParentId = parentId
     const slug = publishedProject.slug
+    selfVerifySlug = slug
     const snapshot = await snapshotArLocale(db, parentId)
     projectSnapshot = snapshot
 
@@ -398,13 +400,7 @@ try {
     const svParentId = selfVerifyParentId
     // Snapshot the current state so we can leave the row exactly as we found it.
     const svInitialSnapshot = await snapshotArLocale(svPayload, svParentId)
-    let svCleanedUp = false
-    const svCleanup = async () => {
-      if (!svCleanedUp) {
-        svCleanedUp = true
-        await restoreArLocale(svPayload, svInitialSnapshot)
-      }
-    }
+    const svSlug = selfVerifySlug
     try {
       // Write a fixture row with the three problem value types.
       await writeArLocale(svPayload, svParentId, {
@@ -448,7 +444,28 @@ try {
         svError instanceof Error ? svError.message : String(svError),
       )
     } finally {
-      await svCleanup()
+      // Same guarantees as the main cleanup: every task attempted, each failure
+      // fails the run, cache invalidated after the direct DB edits, and the
+      // project row verified against its state before this sub-test.
+      const svFailures = await runCleanup([
+        { label: "restore Arabic row after self-verification", run: () => restoreArLocale(svPayload, svInitialSnapshot) },
+        {
+          label: "invalidate project cache after self-verification",
+          run: async () => {
+            if (!svSlug) throw new Error("project slug unknown")
+            await invalidateProjectCache(svSlug, "after self-verification restore")
+          },
+        },
+      ])
+      for (const failure of svFailures) {
+        check(`cleanup: ${failure.label}`, false, failure.error instanceof Error ? failure.error.message : String(failure.error))
+      }
+      const svRestored = await verifyArLocale(svPayload, svInitialSnapshot)
+      check(
+        "restoration self-verification: project row back to its pre-test state (every column)",
+        svFailures.length === 0 && svRestored.ok,
+        svRestored.detail,
+      )
     }
   }
 

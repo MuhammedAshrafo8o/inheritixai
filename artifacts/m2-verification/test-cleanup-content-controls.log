@@ -1,0 +1,45 @@
+■ Arabic optional content and visibility are independent
+  PASS  clearing an Arabic optional label does not restore English
+  PASS  clearing an Arabic optional label leaves English unchanged
+  PASS  explicit untranslated-record fallback keeps English canonical + noindex
+  PASS  Arabic CTA visibility is independent
+  PASS  project cache invalidated before inspection — /, /ar, /projects, /ar/projects, /sitemap.xml, /projects/featured-muqqehar, /ar/projects/featured-muqqehar
+  PASS  untranslated record with populated Arabic optional field uses English on listing card and detail page — listing has English title: true, detail has English title: true
+  PASS  hiding an Arabic section leaves the English section visible
+■ Site Labels drive visitor-facing copy
+  PASS  project fact label from CMS
+  PASS  article contents label from CMS
+  PASS  article CTA from CMS (eyebrow, title, label, href)
+  PASS  old hardcoded article CTA absent
+  PASS  product FAQ title from CMS
+  PASS  service kicker from CMS
+  PASS  language switch text + nav aria-label from CMS
+  PASS  404 copy from CMS — HTTP 404
+  PASS  Arabic 404 uses Arabic CMS copy — HTTP 404
+  PASS  500 copy available to the client error view (AR)
+■ Cleared fields hide elements without fallback text
+  PASS  cleared contents label → no label, no 'CONTENTS'
+  PASS  article CTA hidden when switched off
+  PASS  cleared service problem section hidden (and its nav link)
+  PASS  no fallback problem copy reappears
+  PASS  cleared product workflow/tour titles stay empty
+  PASS  cleared About manifesto title/eyebrow stay empty
+  PASS  cleared hero CTA label → CTA hidden (no Site Label fallback)
+  PASS  cleared service card note → sentence gone
+■ Contact form copy from CMS
+  PASS  form labels from CMS
+  PASS  service choices are published service titles
+  PASS  Arabic form copy
+■ Redirect status codes
+  PASS  301 no longer accepted — HTTP 400
+  PASS  stored 307 served as 307 — HTTP 307 → /about
+  PASS  stored 308 served as 308 — HTTP 308 → /about
+  PASS  legacy 301 row migrated to 308 — HTTP 308
+■ Restoration
+  PASS  all cleanup operations succeeded — 23/23 succeeded
+  PASS  project Arabic locale fields match their original values (every column) — matches original: "no Arabic row"
+  PASS  restoration self-verification: apostrophe, empty string, and NULL round-trip through parameterized restore — matches original: {"title":"O'Brien project","summary":"","intro":null}
+  PASS  restoration self-verification: simulated mismatch is correctly detected — expected {"title":"O'Brien project","summary":"","intro":null}, found {"title":"mismatch title","summary":"mismatch summary","intro":"mismatch intro"}
+  PASS  restoration self-verification: project row back to its pre-test state (every column) — matches original: "no Arabic row"
+  PASS  article CTA and contents label restored
+38 passed, 0 failed (run mur0fc3s)

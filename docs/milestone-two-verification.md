@@ -68,7 +68,9 @@ Execution handshake and whole-record listing fallback correction (same branch, s
 | `npm run test:content-controls` (handshake & whole-record fallback) | 37/37 passed: includes untranslated record with populated Arabic optional field verified to use English on both listing card and detail page; plus parameterized restore round-trip and simulated mismatch detection |
 | `npm run typecheck` (handshake & whole-record fallback) | exit 0 |
 | `npm run build` (handshake & whole-record fallback) | exit 0 — compiled successfully in 107s, 22 static pages generated |
-| `npm run test:content-controls` (test-cleanup fix) | 37/37 passed: parameterized restore self-verification with apostrophe/empty/NULL round-trip and simulated mismatch detected |
+| `npm run test:content-controls` (test-cleanup fix, final) | **38/38 passed** — includes required cache invalidation before inspection, 23/23 cleanup tasks succeeded, project Arabic row verified against its original (every column), in-script apostrophe/empty/NULL round-trip, simulated mismatch detected, and the sub-test's own restore verified (`test-cleanup-content-controls.log`) |
+| `npm run test:restore-fixtures` (test-cleanup fix) | **21/21 passed** — six restoration scenarios after a simulated assertion failure, plus the cleanup-runner check (`test-cleanup-restore-fixtures.log`) |
+| `test:content-controls` with `PREVIEW_SECRET` blank / rejected | both **exit 1** as intended: fails before inspecting any page, remaining cleanup still runs (5/6 tasks), the failed post-restore invalidation is reported, and the project row is verified as restored (`test-cleanup-invalidation-negative.log`) |
 | `npm run typecheck` (test-cleanup fix) | exit 0 |
 
 ### Database outage (PostgreSQL stopped under the running server)
@@ -131,13 +133,19 @@ During verification, the first `migrate:create` invocation crossed the execution
 
 ## Test-cleanup fix
 
-| Requirement | Verified implementation |
-|---|---|
-| Parameterized queries | `scripts/content-controls-check.ts` uses `scripts/lib/test-fixtures.ts` helpers (`writeArLocale`, `restoreArLocale`, `snapshotArLocale`, `verifyArLocale`) throughout the project-locale check; no string interpolation of user values. |
-| Restoration failure fails the run | Cleanup tasks collected by `runCleanup()`; each failure adds a `FAIL` check; `process.exit(1)` is triggered by any non-zero `failed.length`. |
-| Project field verification after restore | `verifyArLocale()` compares every column of the current Arabic locale row against the snapshot; a mismatch fails the run. |
-| Cache invalidation required before inspection and after restore | `invalidateProjectCache()` throws on missing `PREVIEW_SECRET`, non-200, or `revalidated !== true`; pages are never inspected on a stale cache. |
-| Restoration self-verification with apostrophe, empty string, and NULL | `Restoration` section writes `{title: "O'Brien project", summary: "", intro: null}` via parameterized queries, snapshots, overwrites, restores, and asserts all three values match exactly. A subsequent deliberate mismatch write asserts `verifyArLocale` returns `ok: false`. (**37/37 passed**) |
+Scope: test reliability only (`scripts/content-controls-check.ts`, `scripts/lib/test-fixtures.ts`, `scripts/restore-fixture-check.ts`); no application code changed. Results below are from runs against a production build of `590e72c` application code.
+
+| Requirement | Implementation | Result |
+|---|---|---|
+| Parameterized project-locale queries | `scripts/lib/test-fixtures.ts` binds every value through Drizzle's `sql` template (no `sql.raw`, no string interpolation). Snapshots store the whole row as JSON, so apostrophes, empty strings and NULL are preserved exactly. The previous restore turned an empty string into NULL; that is fixed. If the row was deleted meanwhile, restore re-inserts the complete original row (all columns, including its id) from a bound JSON value. | Original values stored and restored exactly in every scenario (21/21) |
+| A restoration failure fails the run; remaining cleanup is still attempted | Cleanup tasks run through `runCleanup()`, which attempts every task and returns each failure. Every failure becomes a `FAIL` check and the run exits 1. HTTP restores require a 2xx response (`expectOk`). The in-script self-verification sub-test now uses the same path; previously a failure in its restore escaped the top-level `finally` without being reported. | Cleanup runner check: the task after a failing one still ran, and the failure was reported. Negative runs: 5/6 tasks ran, the failed one was reported, exit 1 |
+| Project fields verified after restoration | `verifyArLocale()` compares every column of the Arabic row with the snapshot taken before the test. It runs after the main cleanup and again after the self-verification sub-test (which previously did not verify its own restore). | "project Arabic locale fields match their original values (every column)" and "project row back to its pre-test state" — both PASS |
+| Cache invalidation required before inspection and after restoration | `invalidateProjectCache()` throws when `PREVIEW_SECRET` is missing or blank, on a non-200 response, or when `revalidated !== true`. It is called before the changed pages are inspected, as a cleanup task after the main restore, and after the self-verification restore. | PASS with the configured secret (paths invalidated include `/ar/projects/<slug>`). Blank secret → "impossible: PREVIEW_SECRET is not set (or blank)", exit 1. Rejected secret → "rejected: HTTP 401", exit 1 |
+| Restoration with apostrophe, empty string and NULL, including a simulated assertion failure | `npm run test:restore-fixtures` (database only). Scenarios: `O'Brien's “quoted” project` / `""` / NULL; NULL / SQL-like text with quotes / `""`; all `""`; all NULL; no Arabic row; an existing row deleted mid-test. Each scenario mutates the row, throws a simulated assertion failure, cleans up, and verifies every column. Also checks that the cleanup runner continues after a failing task. The project's real Arabic row is snapshotted first and verified at the end. | **21/21 passed** |
+
+Typecheck: `npm run typecheck` exit 0. A broad regression rerun was not needed: the focused checks found no application failure.
+
+Observed during these runs (not caused by this change): 5 Payload CLI invocations printed nothing and hung until the hard 300-second limit killed them. That is 4 of the last 9 bounded runs, plus the first negative run. In each case the test had not yet written anything (each script prints before its first database write), so the run was simply repeated. The current wrapper (`590e72c`) has no time limit once execution has been acknowledged, so the runs above were bounded externally. The cause has not been confirmed.
 
 ## Field-to-rendered-element checklist
 
