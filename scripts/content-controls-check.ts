@@ -4,11 +4,29 @@
  *   npm run start                      # in another terminal
  *   npm run test:content-controls      # BASE_URL defaults to http://localhost:8443
  *
- * Every value changed here is restored at the end (also on failure).
+ * Every value changed here is restored at the end (also on failure). A
+ * restoration failure, or a project field that does not match its original
+ * value afterwards, fails the run (exit 1) after all cleanup was attempted.
+ * Requires PREVIEW_SECRET (project cache invalidation after direct DB edits).
+ *
+ * The Restoration section also self-verifies the DB helpers: it writes a
+ * fixture row containing an apostrophe, an empty string, and NULL using
+ * parameterized queries; restores it; and confirms all three values round-trip
+ * exactly.  A simulated assertion failure is included to confirm that
+ * verifyArLocale() correctly reports ok: false when a mismatch is present.
  */
-import { sql } from "@payloadcms/db-postgres"
-import { getPayload } from "payload"
+import { getPayload, type Payload } from "payload"
 import config from "../src/payload.config"
+import {
+  expectOk,
+  restoreArLocale,
+  runCleanup,
+  snapshotArLocale,
+  verifyArLocale,
+  writeArLocale,
+  type CleanupTask,
+  type ProjectLocaleSnapshot,
+} from "./lib/test-fixtures"
 
 const BASE = (process.env.BASE_URL || "http://localhost:8443").replace(/\/+$/, "")
 const RUN = Date.now().toString(36)
@@ -16,7 +34,12 @@ const RUN = Date.now().toString(36)
 type Result = { group: string; check: string; ok: boolean; detail?: string }
 const results: Result[] = []
 let group = ""
-const restore: Array<() => Promise<unknown>> = []
+/** Cleanup tasks, most recent first (registered with unshift). */
+const restore: CleanupTask[] = []
+let payload: Payload | null = null
+let projectSnapshot: ProjectLocaleSnapshot | null = null
+/** Parent-id used for the restoration self-verification sub-test. */
+let selfVerifyParentId: number | null = null
 
 function section(name: string) {
   group = name
@@ -46,10 +69,41 @@ function send(method: "POST" | "PATCH", path: string, token: string, body: unkno
 async function setGlobal(token: string, slug: string, locale: "en" | "ar", patch: Record<string, unknown>) {
   const before = await json(await http(`/api/globals/${slug}?locale=${locale}&depth=0&fallbackLocale=none`, { token }))
   const original = Object.fromEntries(Object.keys(patch).map((k) => [k, before[k] ?? null]))
-  restore.unshift(() => send("POST", `/api/globals/${slug}?locale=${locale}`, token, original))
+  restore.unshift({
+    label: `restore global ${slug} (${locale})`,
+    run: async () => expectOk(await send("POST", `/api/globals/${slug}?locale=${locale}`, token, original), `restore ${slug} (${locale})`),
+  })
   const res = await send("POST", `/api/globals/${slug}?locale=${locale}`, token, patch)
   if (res.status !== 200) throw new Error(`update ${slug} failed: HTTP ${res.status} ${await res.text()}`)
   return before
+}
+
+/**
+ * Direct database edits bypass Payload hooks, so the project pages must be
+ * revalidated explicitly. Missing configuration or a rejected request is an
+ * error — pages are never inspected (or declared restored) on a stale cache.
+ */
+async function invalidateProjectCache(slug: string, phase: string) {
+  const secret = process.env.PREVIEW_SECRET?.trim()
+  if (!secret) {
+    throw new Error(`cache invalidation (${phase}) impossible: PREVIEW_SECRET is not set (or blank)`)
+  }
+  const res = await fetch(`${BASE}/api/cache/projects`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },
+    body: JSON.stringify({ slug }),
+  })
+  const text = await res.text()
+  let body: { revalidated?: boolean; paths?: string[] } = {}
+  try {
+    body = JSON.parse(text)
+  } catch {
+    // reported below
+  }
+  if (res.status !== 200 || body.revalidated !== true) {
+    throw new Error(`cache invalidation (${phase}) rejected: HTTP ${res.status} ${text.slice(0, 200)}`)
+  }
+  return body.paths ?? []
 }
 
 async function main() {
@@ -105,70 +159,49 @@ async function main() {
   )
 
   // ── Untranslated record with populated Arabic optional field uses English ──
-  const payload = await getPayload({ config })
+  payload = await getPayload({ config })
+  const db = payload
   const publishedProject = (
-    await payload.find({
+    await db.find({
       collection: "projects",
       where: { _status: { equals: "published" } },
       limit: 1,
       locale: "en",
     })
   ).docs[0]
-  if (publishedProject) {
-    const existingArRow = await payload.db.drizzle.execute(
-      sql.raw(`SELECT id, title, summary, intro FROM projects_locales WHERE _parent_id = ${publishedProject.id} AND _locale = 'ar'`),
-    )
-    const hadArRow = ((existingArRow as any).rows ?? existingArRow).length > 0
-    const originalAr = hadArRow ? ((existingArRow as any).rows ?? existingArRow)[0] : null
+  if (!publishedProject) {
+    check("untranslated record with populated Arabic optional field uses English on listing card and detail page", false, "no published project to test with")
+  } else {
+    const parentId = Number(publishedProject.id)
+    selfVerifyParentId = parentId
+    const slug = publishedProject.slug
+    const snapshot = await snapshotArLocale(db, parentId)
+    projectSnapshot = snapshot
 
-    restore.unshift(async () => {
-      if (hadArRow && originalAr) {
-        await payload.db.drizzle.execute(
-          sql.raw(
-            `UPDATE projects_locales SET title = ${originalAr.title ? `'${originalAr.title}'` : "NULL"}, summary = ${originalAr.summary ? `'${originalAr.summary}'` : "NULL"}, intro = ${originalAr.intro ? `'${originalAr.intro}'` : "NULL"} WHERE _parent_id = ${publishedProject.id} AND _locale = 'ar'`,
-          ),
-        )
-      } else {
-        await payload.db.drizzle.execute(
-          sql.raw(`DELETE FROM projects_locales WHERE _parent_id = ${publishedProject.id} AND _locale = 'ar'`),
-        )
-      }
-      const previewSecret = process.env.PREVIEW_SECRET
-      if (previewSecret) {
-        await fetch(`${BASE}/api/cache/projects`, {
-          method: "POST",
-          headers: { authorization: `Bearer ${previewSecret}`, "content-type": "application/json" },
-          body: JSON.stringify({ slug: publishedProject.slug }),
-        })
-      }
+    // Registered before mutating; run in reverse order: DB restore, then cache invalidation.
+    restore.unshift({
+      label: `invalidate project cache after restore (${slug})`,
+      run: async () => {
+        await invalidateProjectCache(slug, "after restore")
+      },
+    })
+    restore.unshift({
+      label: `restore Arabic locale row of project ${slug}`,
+      run: () => restoreArLocale(db, snapshot),
     })
 
-    if (hadArRow) {
-      await payload.db.drizzle.execute(
-        sql.raw(
-          `UPDATE projects_locales SET title = NULL, summary = 'Arabic Optional Summary ${RUN}', intro = 'Arabic Optional Intro ${RUN}' WHERE _parent_id = ${publishedProject.id} AND _locale = 'ar'`,
-        ),
-      )
-    } else {
-      await payload.db.drizzle.execute(
-        sql.raw(
-          `INSERT INTO projects_locales (_parent_id, _locale, title, summary, intro) VALUES (${publishedProject.id}, 'ar', NULL, 'Arabic Optional Summary ${RUN}', 'Arabic Optional Intro ${RUN}')`,
-        ),
-      )
-    }
-
-    const previewSecret = process.env.PREVIEW_SECRET
-    if (previewSecret) {
-      await fetch(`${BASE}/api/cache/projects`, {
-        method: "POST",
-        headers: { authorization: `Bearer ${previewSecret}`, "content-type": "application/json" },
-        body: JSON.stringify({ slug: publishedProject.slug }),
-      })
-    }
+    // Untranslated Arabic record (no title) with populated optional Arabic fields.
+    await writeArLocale(db, parentId, {
+      title: null,
+      summary: `Arabic Optional Summary ${RUN}`,
+      intro: `Arabic Optional Intro ${RUN}`,
+    })
+    const invalidated = await invalidateProjectCache(slug, "before inspection")
+    check("project cache invalidated before inspection", invalidated.includes(`/ar/projects/${slug}`), invalidated.join(", "))
 
     const [untransProjectListingAr, untransProjectDetailAr] = await Promise.all([
       page("/ar/projects"),
-      page(`/ar/projects/${publishedProject.slug}`),
+      page(`/ar/projects/${slug}`),
     ])
 
     check(
@@ -260,20 +293,32 @@ async function main() {
   check("article CTA hidden when switched off", !article2.html.includes("context-link") && !article2.html.includes("BUILDING AN OPERATIONAL PRODUCT?"))
 
   const svc = (await json(await http("/api/services?where[slug][equals]=custom-software&depth=0&locale=en", { token: E }))).docs[0]
-  restore.unshift(() =>
-    send("PATCH", `/api/services/${svc.id}?locale=en`, E, {
-      problemHeading: svc.problemHeading,
-      problemDescription: svc.problemDescription,
-      _status: "published",
-    }),
-  )
+  restore.unshift({
+    label: "restore service custom-software (en)",
+    run: async () =>
+      expectOk(
+        await send("PATCH", `/api/services/${svc.id}?locale=en`, E, {
+          problemHeading: svc.problemHeading,
+          problemDescription: svc.problemDescription,
+          _status: "published",
+        }),
+        "restore service custom-software",
+      ),
+  })
   await send("PATCH", `/api/services/${svc.id}?locale=en`, E, { problemHeading: "", problemDescription: "", _status: "published" })
   const service2 = await page("/services/custom-software")
   check("cleared service problem section hidden (and its nav link)", !service2.html.includes('id="problem"') && !service2.html.includes('href="#problem"'))
   check("no fallback problem copy reappears", !service2.html.includes("Complexity should serve the business"))
 
   const prod = (await json(await http("/api/products?where[slug][equals]=logisttex&depth=0&locale=en", { token: E }))).docs[0]
-  restore.unshift(() => send("PATCH", `/api/products/${prod.id}?locale=en`, E, { workflowTitle: prod.workflowTitle, tourTitle: prod.tourTitle, _status: "published" }))
+  restore.unshift({
+    label: "restore product logisttex (en)",
+    run: async () =>
+      expectOk(
+        await send("PATCH", `/api/products/${prod.id}?locale=en`, E, { workflowTitle: prod.workflowTitle, tourTitle: prod.tourTitle, _status: "published" }),
+        "restore product logisttex",
+      ),
+  })
   await send("PATCH", `/api/products/${prod.id}?locale=en`, E, { workflowTitle: "", tourTitle: "", _status: "published" })
   const product2 = await page("/products/logisttex")
   check("cleared product workflow/tour titles stay empty", !product2.html.includes("From order to proof of delivery.") && !product2.html.includes("Operational visibility without the noise."))
@@ -314,7 +359,12 @@ async function main() {
   for (const code of ["307", "308"] as const) {
     const res = await send("POST", "/api/redirects", A, { from: `/r${code}-${RUN}`, to: "/about", statusCode: code })
     const created = (await json(res)).doc
-    if (created?.id) restore.unshift(() => http(`/api/redirects/${created.id}`, { method: "DELETE", token: A }))
+    if (created?.id) {
+      restore.unshift({
+        label: `delete test redirect ${code}`,
+        run: async () => expectOk(await http(`/api/redirects/${created.id}`, { method: "DELETE", token: A }), `delete redirect ${created.id}`),
+      })
+    }
     const hit = await page(`/r${code}-${RUN}`)
     check(`stored ${code} served as ${code}`, hit.status === Number(code) && hit.location?.endsWith("/about") === true, `HTTP ${hit.status} → ${hit.location}`)
   }
@@ -327,9 +377,83 @@ try {
 } catch (error) {
   check("unexpected error", false, error instanceof Error ? error.stack : String(error))
 } finally {
-  for (const undo of restore) await undo().catch((error) => console.error("restore failed", error))
+  section("Restoration")
+  // Every task is attempted even if earlier ones fail; each failure fails the run.
+  const failures = await runCleanup(restore)
+  for (const failure of failures) {
+    check(`cleanup: ${failure.label}`, false, failure.error instanceof Error ? failure.error.message : String(failure.error))
+  }
+  check("all cleanup operations succeeded", failures.length === 0, `${restore.length - failures.length}/${restore.length} succeeded`)
+  if (payload && projectSnapshot) {
+    const verified = await verifyArLocale(payload, projectSnapshot)
+    check("project Arabic locale fields match their original values (every column)", verified.ok, verified.detail)
+  }
+
+  // ── Restoration self-verification ─────────────────────────────────────────
+  // Exercises writeArLocale / restoreArLocale / verifyArLocale with values that
+  // require correct parameterization: an apostrophe, an empty string, and NULL.
+  // Also confirms that verifyArLocale reports ok:false on a deliberate mismatch.
+  if (payload && selfVerifyParentId !== null) {
+    const svPayload = payload
+    const svParentId = selfVerifyParentId
+    // Snapshot the current state so we can leave the row exactly as we found it.
+    const svInitialSnapshot = await snapshotArLocale(svPayload, svParentId)
+    let svCleanedUp = false
+    const svCleanup = async () => {
+      if (!svCleanedUp) {
+        svCleanedUp = true
+        await restoreArLocale(svPayload, svInitialSnapshot)
+      }
+    }
+    try {
+      // Write a fixture row with the three problem value types.
+      await writeArLocale(svPayload, svParentId, {
+        title: "O'Brien project",
+        summary: "",
+        intro: null,
+      })
+      const svSnapshot = await snapshotArLocale(svPayload, svParentId)
+
+      // Overwrite with different values, then restore from snapshot.
+      await writeArLocale(svPayload, svParentId, {
+        title: "different title",
+        summary: "different summary",
+        intro: "different intro",
+      })
+      await restoreArLocale(svPayload, svSnapshot)
+      const svVerified = await verifyArLocale(svPayload, svSnapshot)
+      check(
+        "restoration self-verification: apostrophe, empty string, and NULL round-trip through parameterized restore",
+        svVerified.ok,
+        svVerified.detail,
+      )
+
+      // Simulate a mismatch: write values that differ from the snapshot and do
+      // NOT restore — verifyArLocale must return ok: false.
+      await writeArLocale(svPayload, svParentId, {
+        title: "mismatch title",
+        summary: "mismatch summary",
+        intro: "mismatch intro",
+      })
+      const svMismatch = await verifyArLocale(svPayload, svSnapshot)
+      check(
+        "restoration self-verification: simulated mismatch is correctly detected",
+        !svMismatch.ok,
+        svMismatch.detail,
+      )
+    } catch (svError) {
+      check(
+        "restoration self-verification: apostrophe, empty string, and NULL round-trip through parameterized restore",
+        false,
+        svError instanceof Error ? svError.message : String(svError),
+      )
+    } finally {
+      await svCleanup()
+    }
+  }
+
   const after = await page("/insights/software-people-adopt")
-  check("all edits restored (article CTA back)", after.html.includes("BUILDING AN OPERATIONAL PRODUCT?") && after.html.includes(">CONTENTS<"))
+  check("article CTA and contents label restored", after.html.includes("BUILDING AN OPERATIONAL PRODUCT?") && after.html.includes(">CONTENTS<"))
 }
 
 const failed = results.filter((r) => !r.ok)

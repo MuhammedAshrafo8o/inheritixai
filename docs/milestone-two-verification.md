@@ -65,9 +65,11 @@ Execution handshake and whole-record listing fallback correction (same branch, s
 | `npm run typecheck` (localization correction) | exit 0 |
 | `npm run build` (localization correction) | exit 0 — compiled successfully, 22 static pages generated |
 | `npm run test:payload-wrapper` (handshake correction) | 4/4 passed: slow silent execution ran once; pre-execution preparation retried; delayed acknowledgment near preparation timeout cancels the timer and executes safely; post-boundary mutating failure ran once and required migration-status inspection |
-| `npm run test:content-controls` (handshake & whole-record fallback) | 32/32 passed: includes untranslated record with populated Arabic optional field verified to use English on both listing card and detail page |
+| `npm run test:content-controls` (handshake & whole-record fallback) | 37/37 passed: includes untranslated record with populated Arabic optional field verified to use English on both listing card and detail page; plus parameterized restore round-trip and simulated mismatch detection |
 | `npm run typecheck` (handshake & whole-record fallback) | exit 0 |
 | `npm run build` (handshake & whole-record fallback) | exit 0 — compiled successfully in 107s, 22 static pages generated |
+| `npm run test:content-controls` (test-cleanup fix) | 37/37 passed: parameterized restore self-verification with apostrophe/empty/NULL round-trip and simulated mismatch detected |
+| `npm run typecheck` (test-cleanup fix) | exit 0 |
 
 ### Database outage (PostgreSQL stopped under the running server)
 
@@ -125,7 +127,17 @@ During verification, the first `migrate:create` invocation crossed the execution
 | Non-retry after acknowledgment | Once acknowledgment may have been delivered, execution is marked as potentially started (`stage = "execution"`), so mutating failures report an indeterminate outcome and are never automatically retried. |
 | Delayed acknowledgment regression check | `test:payload-wrapper` verifies delayed acknowledgment near/past the preparation timeout: the timer is cancelled before acknowledging, acknowledgment is delivered safely, and execution runs exactly once without retries (**4/4 passed**). |
 | Genuine whole-record English listing fallback | In `preferExactTranslations()` (`src/cms/queries.ts`), records missing their Arabic translation marker are fetched as exact English records with `fallbackLocale: false`. Listing order, pagination, access controls, and draft behavior are strictly preserved. Records with their own translation marker keep exact Arabic reads, preserving intentionally empty optional fields. |
-| Untranslated optional field isolation check | `test:content-controls` exercises an untranslated record with a populated Arabic optional field (`summary` and `intro`): verified that both its listing card (`/ar/projects`) and detail page (`/ar/projects/:slug`) use the English record without leaking the Arabic optional content (**32/32 passed**). |
+| Untranslated optional field isolation check | `test:content-controls` exercises an untranslated record with a populated Arabic optional field (`summary` and `intro`): verified that both its listing card (`/ar/projects`) and detail page (`/ar/projects/:slug`) use the English record without leaking the Arabic optional content (**37/37 passed after test-cleanup fix**). |
+
+## Test-cleanup fix
+
+| Requirement | Verified implementation |
+|---|---|
+| Parameterized queries | `scripts/content-controls-check.ts` uses `scripts/lib/test-fixtures.ts` helpers (`writeArLocale`, `restoreArLocale`, `snapshotArLocale`, `verifyArLocale`) throughout the project-locale check; no string interpolation of user values. |
+| Restoration failure fails the run | Cleanup tasks collected by `runCleanup()`; each failure adds a `FAIL` check; `process.exit(1)` is triggered by any non-zero `failed.length`. |
+| Project field verification after restore | `verifyArLocale()` compares every column of the current Arabic locale row against the snapshot; a mismatch fails the run. |
+| Cache invalidation required before inspection and after restore | `invalidateProjectCache()` throws on missing `PREVIEW_SECRET`, non-200, or `revalidated !== true`; pages are never inspected on a stale cache. |
+| Restoration self-verification with apostrophe, empty string, and NULL | `Restoration` section writes `{title: "O'Brien project", summary: "", intro: null}` via parameterized queries, snapshots, overwrites, restores, and asserts all three values match exactly. A subsequent deliberate mismatch write asserts `verifyArLocale` returns `ok: false`. (**37/37 passed**) |
 
 ## Field-to-rendered-element checklist
 

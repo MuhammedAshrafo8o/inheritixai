@@ -21,7 +21,8 @@
     "test:integration": "node scripts/payload.mjs run scripts/integration-check.ts",
     "test:content-controls": "node scripts/payload.mjs run scripts/content-controls-check.ts",
     "test:localized-visibility-db": "node scripts/payload.mjs run scripts/localized-visibility-migration-check.ts",
-    "test:payload-wrapper": "node scripts/payload-wrapper-check.mjs"
+    "test:payload-wrapper": "node scripts/payload-wrapper-check.mjs",
+    "test:restore-fixtures": "node scripts/payload.mjs run scripts/restore-fixture-check.ts"
   },
   "dependencies": {
     "@payloadcms/db-postgres": "3.90.2",
