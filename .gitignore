@@ -70,3 +70,6 @@ Thumbs.db
 .vscode/settings.json
 *.suo
 *.user
+
+# Sanitized verification evidence (no credentials, tokens or connection strings).
+!artifacts/m2-verification/*.log

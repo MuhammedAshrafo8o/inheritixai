@@ -1,113 +1,68 @@
 import { draftMode } from "next/headers"
 import { NextResponse } from "next/server"
-import { getPayload } from "payload"
-import config from "@/payload.config"
-import { isAuthenticatedPreviewRequest } from "@/cms/preview-auth"
+import { isCmsEditor } from "@/cms/access"
+import { getPayloadClient } from "@/cms/queries"
 
-function safeRedirectPath(value: unknown) {
-  if (typeof value !== "string" || !value.startsWith("/") || value.startsWith("//")) {
-    return "/"
-  }
-  return value
+const ROUTES = {
+  projects: "/projects",
+  products: "/products",
+  services: "/services",
+  posts: "/insights",
+} as const
+
+const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+
+const noStore = {
+  "Cache-Control": "no-store, max-age=0, private, must-revalidate",
+  "X-Robots-Tag": "noindex, nofollow",
 }
 
 /**
- * Validates whether the incoming request is authorized to enter preview mode.
- * Either:
- * 1. Bearer token matches PREVIEW_SECRET (for server-to-server preview requests)
- * 2. An active authenticated Payload admin or editor session cookie is present
+ * Enters Next draft mode for a signed-in admin/editor and redirects to the
+ * requested record. Query parameters never authorize anything. Draft mode is
+ * only a hint: every draft render re-verifies the Payload session
+ * (see getViewer), so logging out ends draft visibility immediately.
  */
-async function isAuthorizedForPreview(request: Request): Promise<boolean> {
-  // Method 1: Bearer token secret
-  if (isAuthenticatedPreviewRequest(request)) return true
-
-  // Method 2: Payload session authentication via cookies
-  try {
-    const payload = await getPayload({ config })
-    const { user } = await payload.auth({ headers: request.headers })
-    if (user && (user.roles?.includes("admin") || user.roles?.includes("editor"))) {
-      return true
-    }
-  } catch {
-    // If Payload is offline or auth fails
-  }
-
-  return false
-}
-
 export async function GET(request: Request) {
   const url = new URL(request.url)
-  const collection = url.searchParams.get("collection") || "projects"
-  const slug = url.searchParams.get("slug")
+  const collection = url.searchParams.get("collection") as keyof typeof ROUTES | null
+  const slug = url.searchParams.get("slug") ?? ""
   const lang = url.searchParams.get("lang") === "ar" ? "ar" : "en"
 
-  // Strict: query parameter alone NEVER authorizes preview access
-  const authorized = await isAuthorizedForPreview(request)
+  if (!collection || !(collection in ROUTES) || !SLUG.test(slug)) {
+    return NextResponse.json({ error: "Invalid preview target." }, { status: 400, headers: noStore })
+  }
+
+  let authorized = false
+  try {
+    const payload = await getPayloadClient()
+    const { user } = await payload.auth({ headers: request.headers })
+    authorized = isCmsEditor(user)
+  } catch (error) {
+    console.error("[preview] session check failed", error)
+    return NextResponse.json({ error: "Preview is temporarily unavailable." }, { status: 503, headers: noStore })
+  }
+
   if (!authorized) {
-    return new NextResponse(
-      JSON.stringify({
-        error: "Unauthorized: Active admin or editor session required for preview.",
-      }),
-      {
-        status: 401,
-        headers: {
-          "Content-Type": "application/json",
-          "Cache-Control": "no-store, private",
-          "X-Robots-Tag": "noindex, nofollow",
-        },
-      },
+    const draft = await draftMode()
+    draft.disable()
+    return NextResponse.json(
+      { error: "Unauthorized: an active admin or editor session is required for preview." },
+      { status: 401, headers: noStore },
     )
   }
 
-  // Enable Next.js draft mode
   const draft = await draftMode()
   draft.enable()
-
-  let destination = "/"
-  const prefix = lang === "ar" ? "/ar" : ""
-  if (collection === "projects" && slug) {
-    destination = `${prefix}/projects/${slug}`
-  } else if (collection === "products" && slug) {
-    destination = `${prefix}/products/${slug}`
-  } else if (collection === "services" && slug) {
-    destination = `${prefix}/services/${slug}`
-  } else if (collection === "posts" && slug) {
-    destination = `${prefix}/insights/${slug}`
-  }
-
+  const destination = `${lang === "ar" ? "/ar" : ""}${ROUTES[collection]}/${slug}`
   const response = NextResponse.redirect(new URL(destination, request.url))
-  // Keep preview responses private, uncached by shared caches, and excluded from indexing
-  response.headers.set("Cache-Control", "no-store, max-age=0, private, must-revalidate")
-  response.headers.set("X-Robots-Tag", "noindex, nofollow")
+  for (const [key, value] of Object.entries(noStore)) response.headers.set(key, value)
   return response
 }
 
-export async function POST(request: Request) {
-  const authorized = await isAuthorizedForPreview(request)
-  if (!authorized) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
-
-  const body = (await request.json().catch(() => ({}))) as { redirect?: unknown }
-  const preview = await draftMode()
-  preview.enable()
-
-  const response = NextResponse.json({
-    enabled: true,
-    redirect: safeRedirectPath(body.redirect),
-  })
-  response.headers.set("Cache-Control", "no-store, private")
-  response.headers.set("X-Robots-Tag", "noindex, nofollow")
-  return response
-}
-
-export async function DELETE(request: Request) {
-  const authorized = await isAuthorizedForPreview(request)
-  if (!authorized) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
-
-  const preview = await draftMode()
-  preview.disable()
-  return NextResponse.json({ enabled: false })
+/** Leaves draft mode (anyone may leave; entering requires a session). */
+export async function DELETE() {
+  const draft = await draftMode()
+  draft.disable()
+  return NextResponse.json({ enabled: false }, { headers: noStore })
 }

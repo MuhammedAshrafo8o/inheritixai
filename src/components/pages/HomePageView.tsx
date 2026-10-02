@@ -7,311 +7,301 @@ import { ProductStage } from "../mockups/ProductStage"
 import { Dashboard } from "../mockups/Dashboard"
 import { MenuPhone } from "../mockups/MenuPhone"
 import type { Locale } from "@/content/types"
+import type { PageHome, Post, Product, Project, Service, SiteLabel } from "@/payload-types"
+import { localizedHref, mediaOf } from "@/site/metadata"
+
+type SectionKey = NonNullable<PageHome["sectionOrder"]>[number]["section"]
+
+const DEFAULT_ORDER: SectionKey[] = [
+  "showcase",
+  "selectedWork",
+  "capabilities",
+  "products",
+  "approach",
+  "perspective",
+  "insights",
+]
+
+/** Editor-defined order, with any sections missing from the list appended in default order. */
+export function resolveSectionOrder(home: PageHome): SectionKey[] {
+  const chosen = (home.sectionOrder ?? []).map((row) => row.section).filter(Boolean)
+  const unique = [...new Set(chosen)]
+  return [...unique, ...DEFAULT_ORDER.filter((key) => !unique.includes(key))]
+}
 
 interface HomePageViewProps {
   lang: Locale
-  homeDoc?: any
-  services: Array<any>
-  posts: Array<any>
+  home: PageHome
+  services: Service[]
+  products: Product[]
+  posts: Post[]
+  labels: SiteLabel
+  featuredProject?: Project | null
 }
 
-export function HomePageView({
-  lang,
-  homeDoc,
-  services,
-  posts,
-}: HomePageViewProps) {
-  const isAr = lang === "ar"
+function productOf(value: unknown, products: Product[]): Product | null {
+  if (value && typeof value === "object" && "slug" in value) {
+    const selected = value as Product
+    // Respect publication: only render selections that are publicly listed.
+    return products.find((p) => p.id === selected.id) ?? null
+  }
+  if (typeof value === "number") return products.find((p) => p.id === value) ?? null
+  return null
+}
 
-  const heroIndex = (homeDoc?.heroIndex as string) || "INH—01 / DIGITAL PRODUCTS"
-  const heroTitleA = (homeDoc?.heroTitleA as string) || (isAr ? "مصمم بإتقان." : "Beautifully designed.")
-  const heroTitleB = (homeDoc?.heroTitleB as string) || (isAr ? "مُهندَس بجدية." : "Seriously engineered.")
-  const heroCopy =
-    (homeDoc?.heroCopy as string) ||
-    (isAr
-      ? "نبني برمجيات تجعل الأعمال المعقدة أسهل في الإدارة، ومنتجات رقمية يستمتع الناس باستخدامها."
-      : "We build software that makes complex businesses easier to run—and digital products people enjoy using.")
+function ProductVisual({ product }: { product: Product }) {
+  return product.visualType === "phone" ? <MenuPhone /> : <Dashboard />
+}
 
-  const workCtaText = isAr ? "استكشف أعمالنا" : "Explore Our Work"
-  const startCtaText = isAr ? "ابدأ مشروعك" : "Start a Project"
-  const prefix = isAr ? "/ar" : ""
+export function HomePageView({ lang, home, services, products, posts, labels, featuredProject }: HomePageViewProps) {
+  const href = (path: string | null | undefined, fallback = "/") => localizedHref(path, lang, fallback)
 
-  const approachPhases = [
-    {
-      number: "01",
-      name: isAr ? "الاستكشاف" : "Discovery",
-      desc: isAr
-        ? "تحديد المشكلة والمستخدمين والقيود ومقاييس النجاح."
-        : "Define the problem, users, constraints, and measure of success.",
+  const sections: Record<SectionKey, () => React.ReactNode> = {
+    showcase: () => {
+      const s = home.showcaseSection
+      if (s?.visible === false) return null
+      return (
+        <section className="showcase reveal" key="showcase">
+          <ProductStage stageLabel={s?.stageLabel || undefined} stageNote={s?.stageNote || undefined} />
+        </section>
+      )
     },
-    {
-      number: "02",
-      name: isAr ? "التصميم" : "Design",
-      desc: isAr
-        ? "تجسيد سير العمل، اختبار الأجزاء الصعبة، وتشكيل النظام."
-        : "Make workflows tangible, test the hard parts, and shape the system.",
-    },
-    {
-      number: "03",
-      name: isAr ? "الهندسة" : "Engineering",
-      desc: isAr
-        ? "البناء ببنية مرنة وتسليم منضبط وموثوق."
-        : "Build with resilient architecture and disciplined delivery.",
-    },
-    {
-      number: "04",
-      name: isAr ? "الإطلاق" : "Launch",
-      desc: isAr
-        ? "الإطلاق المدروس، والتعلم من الاستخدام، وتحسين ما يهم حقًا."
-        : "Release thoughtfully, learn from use, and improve what matters.",
-    },
-  ]
 
-  return (
-    <main>
-      {/* 1. HERO SECTION */}
-      <section className="hero">
-        <div className="hero-index">{heroIndex}</div>
-        <h1>
-          <span>{heroTitleA}</span>
-          <span className="accent-line">{heroTitleB}</span>
-        </h1>
-        <div className="hero-meta">
-          <p>{heroCopy}</p>
-          <div className="hero-links">
-            <Action to={`${prefix}/projects`}>{workCtaText}</Action>
-            <Action to={`${prefix}/contact`}>{startCtaText}</Action>
-          </div>
-        </div>
-      </section>
+    selectedWork: () => {
+      const s = home.selectedWorkSection
+      if (s?.visible === false) return null
+      const featured = productOf(s?.featuredProduct, products)
+      const secondary = productOf(s?.secondaryProduct, products)
+      const story = s?.storyCard
+      const storyProject = story?.source === "featuredProject" ? featuredProject : null
+      const storyImage = mediaOf(storyProject?.cardImage)
+      const ctaLabel = s?.productCtaLabel
+      return (
+        <section id="selected-work" className="work-section page-pad" key="selectedWork">
+          <SectionHead label={s?.label || ""} title={s?.title || undefined} />
 
-      {/* 2. SHOWCASE STAGE */}
-      <section className="showcase reveal">
-        <ProductStage />
-      </section>
+          {featured && (
+            <article className="work-feature reveal">
+              <div className="work-copy">
+                <span className="eyebrow">{s?.featuredEyebrow}</span>
+                <h3>{featured.name}</h3>
+                <p>{featured.summary}</p>
+                {ctaLabel && <Action to={href(`/products/${featured.slug}`)}>{ctaLabel}</Action>}
+              </div>
+              <div className={`work-visual ${featured.visualType === "phone" ? "menu-visual" : "logisttex"}`}>
+                <ProductVisual product={featured} />
+              </div>
+            </article>
+          )}
 
-      {/* 3. SELECTED WORK SECTION */}
-      <section id="selected-work" className="work-section page-pad">
-        <SectionHead
-          label={isAr ? "أعمال مختارة" : "Selected work"}
-          title={isAr ? "منتجات رقمية لها عمل حقيقي لتنجزه." : "Digital products with real work to do."}
-        />
+          {(secondary || story?.visible !== false) && (
+            <div className="work-pair">
+              {secondary && (
+                <article className="mini-project reveal">
+                  <div className={`mini-visual ${secondary.visualType === "phone" ? "menu-visual" : "logisttex"}`}>
+                    <ProductVisual product={secondary} />
+                  </div>
+                  <span className="eyebrow">{s?.secondaryEyebrow}</span>
+                  <h3>{secondary.name}</h3>
+                  <p>{secondary.summary}</p>
+                  {ctaLabel && <Action to={href(`/products/${secondary.slug}`)}>{ctaLabel}</Action>}
+                </article>
+              )}
 
-        <article className="work-feature reveal">
-          <div className="work-copy">
-            <span className="eyebrow">INHERITIX PRODUCT · LOGISTICS</span>
-            <h3>LOGISTTEX</h3>
-            <p>
-              {isAr
-                ? "منصة عمليات لوجستية تحول الشحنات والمركبات والأداء إلى صورة واحدة واضحة."
-                : "A logistics operations platform that turns shipments, fleets, and performance into one clear picture."}
-            </p>
-            <Action to={`${prefix}/products/logisttex`}>
-              {isAr ? "اكتشف المنتج" : "View product"}
-            </Action>
-          </div>
-          <div className="work-visual logisttex">
-            <Dashboard />
-          </div>
-        </article>
+              {story?.visible !== false && storyProject && (
+                <article className="mini-project reveal shift">
+                  <div className="mini-visual system-visual">
+                    {storyImage?.url ? (
+                      <img
+                        src={storyImage.url}
+                        alt={storyImage.alt || storyProject.title}
+                        style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                      />
+                    ) : (
+                      <div className="system-ring" />
+                    )}
+                  </div>
+                  <span className="eyebrow">{[storyProject.sector, storyProject.year].filter(Boolean).join(" · ")}</span>
+                  <h3>{storyProject.title}</h3>
+                  <p>{storyProject.summary}</p>
+                  {labels.readStory && (
+                    <Action to={href(`/projects/${storyProject.slug}`)}>{labels.readStory}</Action>
+                  )}
+                </article>
+              )}
 
-        <div className="work-pair">
-          <article className="mini-project reveal">
-            <div className="mini-visual menu-visual">
-              <MenuPhone />
+              {story?.visible !== false && story && !storyProject && (
+                <article className="mini-project reveal shift">
+                  <div className="mini-visual system-visual">
+                    <div className="system-type">{story.visualIndex}</div>
+                    <div className="system-ring" />
+                    <p>{story.visualText}</p>
+                  </div>
+                  <span className="eyebrow">{story.eyebrow}</span>
+                  <h3>{story.title}</h3>
+                  <p>{story.description}</p>
+                  {story.cta?.href && story.cta.label && <Action to={href(story.cta.href)}>{story.cta.label}</Action>}
+                </article>
+              )}
             </div>
-            <span className="eyebrow">INHERITIX PRODUCT · HOSPITALITY</span>
-            <h3>Fen El Menu</h3>
-            <p>
-              {isAr
-                ? "طلب رقمي أنيق يبسّط الاختيار ويجعل إدارة القائمة أسرع."
-                : "A refined ordering experience that makes choosing simple and menu management faster."}
-            </p>
-            <Action to={`${prefix}/products/fen-el-menu`}>
-              {isAr ? "اكتشف المنتج" : "View product"}
-            </Action>
-          </article>
+          )}
+        </section>
+      )
+    },
 
-          <article className="mini-project reveal shift">
-            <div className="mini-visual system-visual">
-              <div className="system-type">01—06</div>
-              <div className="system-ring" />
-              <p>
-                Systems that fit
-                <br />
-                the business.
-              </p>
-            </div>
-            <span className="eyebrow">CAPABILITY STORY · CUSTOM SOFTWARE</span>
-            <h3>{isAr ? "مصمم للعمل الفعلي" : "Built around the work"}</h3>
-            <p>
-              {isAr
-                ? "نحوّل سير العمل المعقد إلى أدوات واضحة يمكن للفِرق الاعتماد عليها."
-                : "We turn complex workflows into clear tools that teams can rely on."}
-            </p>
-            <Action to={`${prefix}/projects/operations-platform`}>
-              {isAr ? "اقرأ القصة" : "Read the story"}
-            </Action>
-          </article>
-        </div>
-      </section>
-
-      {/* 4. CAPABILITIES SECTION */}
-      <section className="capabilities page-pad">
-        <SectionHead
-          label={isAr ? "قدراتنا" : "Capabilities"}
-          title={isAr ? "من الفكرة إلى نظام يعمل." : "From first idea to working system."}
-        />
-        <div className="service-list">
-          {services.map((service) => {
-            const slug = service.slug as string
-            const number = (service.number as string) || "01"
-            const title = (service.title as string) || slug
-            const desc = (service.shortDescription as string) || ""
-            return (
-              <Link
-                key={slug}
-                href={`${prefix}/services/${slug}`}
-                className="service-row reveal"
-              >
-                <span>{number}</span>
-                <h3>{title}</h3>
-                <p>{desc}</p>
+    capabilities: () => {
+      const s = home.capabilitiesSection
+      if (s?.visible === false) return null
+      return (
+        <section className="capabilities page-pad" key="capabilities">
+          <SectionHead label={s?.label || ""} title={s?.title || undefined} />
+          <div className="service-list">
+            {services.map((service) => (
+              <Link key={service.id} href={href(`/services/${service.slug}`)} className="service-row reveal">
+                <span>{service.number}</span>
+                <h3>{service.title}</h3>
+                <p>{service.shortDescription}</p>
                 <i>
                   <Arrow />
                 </i>
               </Link>
-            )
-          })}
-        </div>
-      </section>
-
-      {/* 5. PRODUCTS DARK SECTION */}
-      <section className="products-dark">
-        <div className="page-pad">
-          <SectionHead
-            label={isAr ? "منتجاتنا" : "Our products"}
-            title={isAr ? "برمجيات نؤمن بها ونبنيها." : "Software we believe in—and build."}
-          />
-          <div className="product-split">
-            <div className="product-copy reveal">
-              <span>01 / LOGISTTEX</span>
-              <h3>{isAr ? "كل عملية. مرئية." : "Every operation. Visible."}</h3>
-              <p>
-                {isAr
-                  ? "تنسيق الطلبات والأسطول والسائقين والفواتير من مساحة تشغيل واحدة."
-                  : "Coordinate orders, fleet, drivers, and billing from one operational workspace."}
-              </p>
-              <Action to={`${prefix}/products/logisttex`} light>
-                {isAr ? "تفاصيل LOGISTTEX" : "Explore LOGISTTEX"}
-              </Action>
-            </div>
-            <div className="dark-dashboard reveal">
-              <Dashboard />
-            </div>
+            ))}
           </div>
-          <div className="product-split reverse">
-            <div className="product-copy reveal">
-              <span>02 / FEN EL MENU</span>
-              <h3>
-                {isAr
-                  ? "من القائمة إلى الطلب، بسلاسة."
-                  : "From menu to order, beautifully."}
-              </h3>
-              <p>
-                {isAr
-                  ? "تجربة قائمة وطلب مرنة للمطاعم التي تهتم بكل تفصيل."
-                  : "A flexible menu and ordering experience for restaurants that care about every detail."}
-              </p>
-              <Action to={`${prefix}/products/fen-el-menu`} light>
-                {isAr ? "تفاصيل Fen El Menu" : "Explore Fen El Menu"}
-              </Action>
-            </div>
-            <div className="menu-cluster reveal">
-              <MenuPhone />
-              <MenuPhone />
-            </div>
+        </section>
+      )
+    },
+
+    products: () => {
+      const s = home.productsDarkSection
+      if (s?.visible === false) return null
+      return (
+        <section className="products-dark" key="products">
+          <div className="page-pad">
+            <SectionHead label={s?.label || ""} title={s?.title || undefined} />
+            {products.map((product, index) => {
+              const isPhone = product.visualType === "phone"
+              return (
+                <div className={index % 2 === 1 ? "product-split reverse" : "product-split"} key={product.id}>
+                  <div className="product-copy reveal">
+                    <span>
+                      {String(index + 1).padStart(2, "0")} / {product.name.toUpperCase()}
+                    </span>
+                    <h3>{product.tagline}</h3>
+                    <p>{product.homeDescription || product.summary}</p>
+                    <Action to={href(`/products/${product.slug}`)} light>
+                      {`${s?.ctaPrefix ?? ""} ${product.name}`.trim()}
+                    </Action>
+                  </div>
+                  {isPhone ? (
+                    <div className="menu-cluster reveal">
+                      <MenuPhone />
+                      <MenuPhone />
+                    </div>
+                  ) : (
+                    <div className="dark-dashboard reveal">
+                      <Dashboard />
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
-        </div>
-      </section>
+        </section>
+      )
+    },
 
-      {/* 6. APPROACH SECTION */}
-      <section className="approach page-pad">
-        <SectionHead
-          label={isAr ? "منهجيتنا" : "Our approach"}
-          title={isAr ? "أربع مراحل. فريق واحد." : "Four phases. One connected team."}
-        />
-        <div className="approach-grid">
-          {approachPhases.map((phase) => (
-            <div className="approach-item reveal" key={phase.number}>
-              <span>{phase.number}</span>
-              <h3>{phase.name}</h3>
-              <p>{phase.desc}</p>
+    approach: () => {
+      const s = home.approachSection
+      if (s?.visible === false) return null
+      return (
+        <section className="approach page-pad" key="approach">
+          <SectionHead label={s?.label || ""} title={s?.title || undefined} />
+          <div className="approach-grid">
+            {(s?.phases ?? []).map((phase) => (
+              <div className="approach-item reveal" key={phase.id ?? phase.number}>
+                <span>{phase.number}</span>
+                <h3>{phase.name}</h3>
+                <p>{phase.description}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      )
+    },
+
+    perspective: () => {
+      const s = home.perspectiveSection
+      if (s?.visible === false) return null
+      const image = mediaOf(s?.image)
+      const src = image?.url || s?.imageUrl
+      return (
+        <section className="perspective" key="perspective">
+          {src && (
+            <div className="perspective-image">
+              <img src={src} alt={image?.alt || s?.imageAlt || ""} />
             </div>
-          ))}
-        </div>
-      </section>
+          )}
+          <div className="perspective-copy reveal">
+            <span className="eyebrow">{s?.eyebrow}</span>
+            <h2>{s?.title}</h2>
+            <p>{s?.description}</p>
+            {s?.cta?.href && <Action to={href(s.cta.href)}>{s.cta.label}</Action>}
+          </div>
+        </section>
+      )
+    },
 
-      {/* 7. PERSPECTIVE SECTION */}
-      <section className="perspective">
-        <div className="perspective-image">
-          <img
-            src="https://images.unsplash.com/photo-1624012040540-55a09b58686b?auto=format&fit=crop&w=1400&q=85"
-            alt={isAr ? "واجهة معمارية هندسية باللونين الأزرق والأبيض" : "Geometric blue and white architectural facade"}
-          />
-        </div>
-        <div className="perspective-copy reveal">
-          <span className="eyebrow">{isAr ? "وجهة نظرنا" : "Our perspective"}</span>
-          <h2>
-            {isAr
-              ? "الجمال ليس طبقة أخيرة. إنه طريقة تفكير."
-              : "Beauty isn’t the final layer. It’s a way of thinking."}
-          </h2>
-          <p>
-            {isAr
-              ? "نحن فريق تصميم وهندسة واحد. نعتقد أن البرمجيات الأفضل تجعل التعقيد مفهومًا والعمل اليومي أكثر إنسانية."
-              : "We are one design and engineering team. We believe the best software makes complexity understandable—and everyday work more human."}
-          </p>
-          <Action to={`${prefix}/about`}>
-            {isAr ? "تعرف علينا" : "About Inheritix"}
-          </Action>
-        </div>
-      </section>
-
-      {/* 8. INSIGHTS PREVIEW SECTION */}
-      <section className="insights page-pad">
-        <SectionHead
-          label={isAr ? "وجهة نظرنا" : "Our perspective"}
-          title={isAr ? "أفكار للعمل الرقمي الأفضل." : "Thinking for better digital work."}
-        />
-        <div className="article-grid">
-          {posts.slice(0, 3).map((article, index) => {
-            const slug = article.slug as string
-            const color = (article.color as string) || "ink"
-            const categoryLabel = (article.categoryLabel as string) || "PRODUCT THINKING"
-            const title = (article.title as string) || slug
-            const readTime = (article.readTime as string) || "7 min read"
-            return (
-              <Link
-                key={slug}
-                href={`${prefix}/insights/${slug}`}
-                className="article-card reveal"
-              >
-                <div className={`article-art ${color}`}>
+    insights: () => {
+      const s = home.insightsSection
+      if (s?.visible === false || posts.length === 0) return null
+      return (
+        <section className="insights page-pad" key="insights">
+          <SectionHead label={s?.label || ""} title={s?.title || undefined} />
+          <div className="article-grid">
+            {posts.slice(0, 3).map((article, index) => (
+              <Link key={article.id} href={href(`/insights/${article.slug}`)} className="article-card reveal">
+                <div className={`article-art ${article.color || "ink"}`}>
                   <span>0{index + 1}</span>
                   <i />
                 </div>
-                <span className="eyebrow">{categoryLabel}</span>
-                <h3>{title}</h3>
+                <span className="eyebrow">{article.categoryLabel}</span>
+                <h3>{article.title}</h3>
                 <div className="article-meta">
-                  <span>{readTime}</span>
+                  <span>{article.readTime}</span>
                   <Arrow />
                 </div>
               </Link>
-            )
-          })}
+            ))}
+          </div>
+        </section>
+      )
+    },
+  }
+
+  return (
+    <main>
+      <section className="hero">
+        <div className="hero-index">{home.heroIndex}</div>
+        <h1>
+          <span>{home.heroTitleA}</span>
+          <span className="accent-line">{home.heroTitleB}</span>
+        </h1>
+        <div className="hero-meta">
+          <p>{home.heroCopy}</p>
+          <div className="hero-links">
+            {home.heroPrimaryCta?.href && home.heroPrimaryCta.label && (
+              <Action to={href(home.heroPrimaryCta.href)}>{home.heroPrimaryCta.label}</Action>
+            )}
+            {home.heroSecondaryCta?.href && home.heroSecondaryCta.label && (
+              <Action to={href(home.heroSecondaryCta.href)}>{home.heroSecondaryCta.label}</Action>
+            )}
+          </div>
         </div>
       </section>
+
+      {resolveSectionOrder(home).map((key) => (
+        <React.Fragment key={key}>{sections[key]?.()}</React.Fragment>
+      ))}
     </main>
   )
 }

@@ -1,0 +1,31 @@
+■ Site Labels drive visitor-facing copy
+  PASS  project fact label from CMS
+  PASS  article contents label from CMS
+  PASS  article CTA from CMS (eyebrow, title, label, href)
+  PASS  old hardcoded article CTA absent
+  PASS  product FAQ title from CMS
+  PASS  service kicker from CMS
+  PASS  language switch text + nav aria-label from CMS
+  PASS  404 copy from CMS — HTTP 404
+  PASS  Arabic 404 uses Arabic CMS copy — HTTP 404
+  PASS  500 copy available to the client error view (AR)
+■ Cleared fields hide elements without fallback text
+  PASS  cleared contents label → no label, no 'CONTENTS'
+  PASS  article CTA hidden when switched off
+  PASS  cleared service problem section hidden (and its nav link)
+  PASS  no fallback problem copy reappears
+  PASS  cleared product workflow/tour titles stay empty
+  PASS  cleared About manifesto title/eyebrow stay empty
+  PASS  cleared hero CTA label → CTA hidden (no Site Label fallback)
+  PASS  cleared service card note → sentence gone
+■ Contact form copy from CMS
+  PASS  form labels from CMS
+  PASS  service choices are published service titles
+  PASS  Arabic form copy
+■ Redirect status codes
+  PASS  301 no longer accepted — HTTP 400
+  PASS  stored 307 served as 307 — HTTP 307 → /about
+  PASS  stored 308 served as 308 — HTTP 308 → /about
+  PASS  legacy 301 row migrated to 308 — HTTP 308
+  PASS  all edits restored (article CTA back)
+26 passed, 0 failed (run muqqec4m)

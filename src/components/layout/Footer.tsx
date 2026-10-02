@@ -12,6 +12,8 @@ interface FooterProps {
   copyright?: string
   location?: string
   siteName?: string
+  logo?: { url: string; alt: string }
+  socialLinks?: Array<{ platform: string; url: string }>
 }
 
 function stripLocale(path: string) {
@@ -29,38 +31,50 @@ function localizedPath(path: string, lang: "en" | "ar") {
 export function Footer({
   lang,
   navItems,
-  footerHeading = lang === "ar" ? "لديك مشروع في ذهنك؟" : "Have a project in mind?",
-  footerInvitation = lang === "ar" ? "لنصنع شيئًا يستحق الاستخدام." : "Let’s make something worth using.",
-  footerCtaLabel = lang === "ar" ? "حدثنا عما تريد بناءه" : "Tell us what you’re building",
-  copyright = "INHERITIX Technologies",
-  location = "Amman, Jordan",
-  siteName = "INHERITIX",
+  footerHeading,
+  footerInvitation,
+  footerCtaLabel,
+  copyright,
+  location,
+  siteName,
+  logo,
+  socialLinks = [],
 }: FooterProps) {
   const currentYear = new Date().getFullYear()
 
   return (
     <footer className="footer">
-      <div className="footer-lead reveal">
-        <p className="eyebrow">{footerHeading}</p>
-        <h2>{footerInvitation}</h2>
-        <Action to={localizedPath("/contact", lang)} light>
-          {footerCtaLabel}
-        </Action>
-      </div>
+      {(footerHeading || footerInvitation || footerCtaLabel) && (
+        <div className="footer-lead reveal">
+          {footerHeading && <p className="eyebrow">{footerHeading}</p>}
+          {footerInvitation && <h2>{footerInvitation}</h2>}
+          {footerCtaLabel && (
+            <Action to={localizedPath("/contact", lang)} light>
+              {footerCtaLabel}
+            </Action>
+          )}
+        </div>
+      )}
 
       <div className="footer-bottom">
         <Link
           href={lang === "ar" ? "/ar" : "/"}
           className="brand brand-light"
         >
-          <Mark />
-          <strong>{siteName}</strong>
+          {logo ? (
+            <img className="brand-logo" src={logo.url} alt={logo.alt} />
+          ) : (
+            <>
+              <Mark />
+              <strong>{siteName}</strong>
+            </>
+          )}
         </Link>
 
         <div className="footer-nav">
           {navItems.map((item) => (
             <Link
-              key={item.href}
+              key={`${item.href}-${item.label}`}
               href={localizedPath(item.href, lang)}
             >
               {item.label}
@@ -69,8 +83,17 @@ export function Footer({
         </div>
 
         <div className="legal">
-          <span>{location}</span>
-          <span>© {currentYear} {copyright}</span>
+          {socialLinks.map((link) => (
+            <a key={link.url} href={link.url} target="_blank" rel="noopener noreferrer">
+              {link.platform}
+            </a>
+          ))}
+          {location && <span>{location}</span>}
+          {copyright && (
+            <span>
+              © {currentYear} {copyright}
+            </span>
+          )}
         </div>
       </div>
     </footer>

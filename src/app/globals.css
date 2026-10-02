@@ -462,3 +462,53 @@ main {
     transition: none;
   }
 }
+
+/* CMS-managed logo (Site Settings → Branding). Sized to the mark's footprint. */
+.brand-logo {
+  display: block;
+  height: 1.9rem;
+  width: auto;
+  max-width: 11rem;
+  object-fit: contain;
+}
+
+/* Lexical rich text inside articles and project story blocks. */
+.prose h3,
+.project-block-richtext h3 {
+  font-size: clamp(1.4rem, 2vw, 1.8rem);
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+  margin: 3rem 0 1rem;
+}
+.prose ul,
+.prose ol,
+.project-block-richtext ul,
+.project-block-richtext ol {
+  padding-inline-start: 1.25rem;
+  list-style: disc;
+  font-size: 1.08rem;
+  line-height: 1.9;
+  color: #3e5368;
+}
+.prose strong,
+.project-block-richtext strong {
+  color: var(--navy);
+}
+.project-block-richtext blockquote {
+  border-inline-start: 2px solid var(--cyan);
+  margin: 2rem 0;
+  padding-inline-start: 1.25rem;
+  color: var(--blue);
+}
+.prose p + p,
+.prose p + ul,
+.prose ul + p,
+.project-block-richtext p + p,
+.project-block-richtext p + ul,
+.project-block-richtext ul + p {
+  margin-top: 1.1em;
+}
+.prose ol,
+.project-block-richtext ol {
+  list-style: decimal;
+}

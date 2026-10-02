@@ -33,7 +33,8 @@ export const canDeleteContent: Access = ({ req: { user } }) => {
  * anonymous users can only view published documents.
  */
 export const publicOrAuthenticatedRead: Access = ({ req: { user } }) => {
-  if (user) return true
+  const roles = (user as unknown as AuthenticatedCmsUser | null)?.roles || []
+  if (roles.includes("admin") || roles.includes("editor")) return true
   return {
     _status: {
       equals: "published",
@@ -74,16 +75,7 @@ export const usersAccess: {
   delete: isAdmin,
 }
 
-export const PUBLISHED_ONLY_WHERE = {
-  _status: { equals: "published" },
-} as const
-
-export function isPubliclyReadable(status: string) {
-  return status === "published"
-}
-
-export function projectPublicWhere(extra?: Record<string, unknown>) {
-  return extra
-    ? { and: [PUBLISHED_ONLY_WHERE, extra] }
-    : PUBLISHED_ONLY_WHERE
+export function isCmsEditor(user: unknown): user is AuthenticatedCmsUser {
+  const roles = (user as AuthenticatedCmsUser | null | undefined)?.roles || []
+  return roles.includes("admin") || roles.includes("editor")
 }

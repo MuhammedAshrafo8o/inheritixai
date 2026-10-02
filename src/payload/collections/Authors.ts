@@ -1,5 +1,6 @@
 import type { CollectionConfig } from "payload"
 import { canDeleteContent, canManageContent } from "../../cms/access"
+import { revalidateAllAfterChange, revalidateAllAfterDelete } from "../hooks/revalidate"
 
 export const Authors: CollectionConfig = {
   slug: "authors",
@@ -12,6 +13,10 @@ export const Authors: CollectionConfig = {
     create: canManageContent,
     update: canManageContent,
     delete: canDeleteContent,
+  },
+  hooks: {
+    afterChange: [revalidateAllAfterChange],
+    afterDelete: [revalidateAllAfterDelete],
   },
   fields: [
     {

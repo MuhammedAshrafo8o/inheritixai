@@ -1,753 +1,430 @@
-import { draftMode } from "next/headers"
-import { getPayload, type Where } from "payload"
+import { cache } from "react"
+import { draftMode, headers } from "next/headers"
+import { getPayload, type Payload, type Where } from "payload"
 import config from "@/payload.config"
 import type { Locale } from "@/content/types"
+import { isCmsEditor } from "./access"
+import type {
+  ListingPage,
+  Media,
+  Navigation,
+  PageAbout,
+  PageContact,
+  PageHome,
+  Post,
+  Product,
+  Project,
+  Service,
+  SiteLabel,
+  SiteSetting,
+  User,
+} from "@/payload-types"
 
-// Singleton promise for Payload client
-let payloadPromise: ReturnType<typeof getPayload> | null = null
+/**
+ * Public data access for the website.
+ *
+ * - Every Local API call runs with `overrideAccess: false`, so collection access
+ *   control decides what is visible (anonymous visitors only see published docs).
+ * - Drafts are served only when Next draft mode is on AND the request still
+ *   carries a valid admin/editor Payload session (rechecked on every render, so
+ *   logging out immediately ends draft visibility).
+ * - Missing content returns null/[] (→ 404 or empty state). Database or query
+ *   failures throw ContentInfrastructureError (→ logged, HTTP 500) and are never
+ *   converted into placeholder content.
+ */
 
-async function getPayloadClient() {
+export class ContentInfrastructureError extends Error {
+  constructor(operation: string, cause: unknown) {
+    super(`CMS ${operation} failed: ${cause instanceof Error ? cause.message : String(cause)}`, { cause })
+    this.name = "ContentInfrastructureError"
+  }
+}
+
+let payloadPromise: Promise<Payload> | null = null
+
+export function getPayloadClient() {
   if (!payloadPromise) {
-    payloadPromise = getPayload({ config }).catch((err) => {
+    payloadPromise = getPayload({ config }).catch((error) => {
       payloadPromise = null
-      throw err
+      throw error
     })
   }
   return payloadPromise
 }
 
-export async function isDraftModeEnabled(): Promise<boolean> {
+async function run<T>(operation: string, fn: (payload: Payload) => Promise<T>): Promise<T> {
   try {
-    const draft = await draftMode()
-    return draft.isEnabled
-  } catch {
-    return false
+    const payload = await getPayloadClient()
+    return await fn(payload)
+  } catch (error) {
+    if (error instanceof ContentInfrastructureError) throw error
+    // Next.js control-flow signals (notFound/redirect/dynamic bailout) must pass through.
+    if (error && typeof error === "object" && "digest" in error) throw error
+    console.error(`[cms] ${operation} failed`, error)
+    throw new ContentInfrastructureError(operation, error)
   }
 }
 
-/**
- * Standard published-only query predicate for anonymous requests.
- */
-function getWherePublished(extra?: Where, allowDraft = false): Where {
-  const publishedClause: Where = { _status: { equals: "published" } }
-  if (allowDraft) return extra || {}
-  return extra ? ({ and: [publishedClause, extra] } as Where) : publishedClause
+export type Viewer = { draft: boolean; user: User | null }
+
+/** Resolves who is viewing. Draft mode alone never grants draft access. */
+export const getViewer = cache(async (): Promise<Viewer> => {
+  const draft = await draftMode()
+  if (!draft.isEnabled) return { draft: false, user: null }
+  const { user } = await run("session check", async (payload) =>
+    payload.auth({ headers: await headers() }),
+  )
+  if (!isCmsEditor(user)) return { draft: false, user: null }
+  return { draft: true, user: user as User }
+})
+
+async function accessArgs() {
+  const viewer = await getViewer()
+  return {
+    overrideAccess: false as const,
+    user: viewer.user ?? undefined,
+    draft: viewer.draft,
+  }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GLOBALS
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Globals ────────────────────────────────────────────────────────────────
 
-export async function getSiteSettings(locale: Locale = "en") {
-  try {
-    const payload = await getPayloadClient()
-    return await payload.findGlobal({
-      slug: "site-settings",
+function globalReader<T>(slug: Parameters<Payload["findGlobal"]>[0]["slug"]) {
+  return cache(async (locale: Locale): Promise<T> =>
+    run(`global ${slug} (${locale})`, async (payload) =>
+      (await payload.findGlobal({ slug, locale, depth: 2, overrideAccess: false })) as T,
+    ),
+  )
+}
+
+export const getSiteSettings = globalReader<SiteSetting>("site-settings")
+export const getNavigation = globalReader<Navigation>("navigation")
+export const getHomePage = globalReader<PageHome>("page-home")
+export const getAboutPage = globalReader<PageAbout>("page-about")
+export const getContactPage = globalReader<PageContact>("page-contact")
+export const getListingPages = globalReader<ListingPage>("listing-pages")
+export const getSiteLabels = globalReader<SiteLabel>("site-labels")
+
+// ─── Routable collections ───────────────────────────────────────────────────
+
+type RoutableSlug = "services" | "products" | "projects" | "posts"
+
+async function findBySlug<T>(collection: RoutableSlug, slug: string, locale: Locale): Promise<T | null> {
+  const access = await accessArgs()
+  return run(`${collection} "${slug}" (${locale})`, async (payload) => {
+    const result = await payload.find({
+      collection,
       locale,
-      depth: 1,
+      where: { slug: { equals: slug } },
+      limit: 1,
+      depth: 2,
+      ...access,
     })
-  } catch {
-    return {
-      siteName: "INHERITIX",
-      brandColors: {
-        primary: "#0066FF",
-        accent: "#00CCFF",
-        dark: "#060A11",
-      },
-      defaultSeo: {
-        title:
-          locale === "ar"
-            ? "تصميم متقن. هندسة جادة."
-            : "Beautifully designed. Seriously engineered.",
-        description:
-          locale === "ar"
-            ? "تبني Inheritix برمجيات تسهّل إدارة الأعمال المعقدة ومنتجات رقمية يستمتع الناس باستخدامها."
-            : "Inheritix builds software that makes complex businesses easier to run and digital products people enjoy using.",
-      },
-      footerHeading:
-        locale === "ar" ? "لديك مشروع في ذهنك؟" : "Have a project in mind?",
-      footerInvitation:
-        locale === "ar"
-          ? "لنصنع شيئًا يستحق الاستخدام."
-          : "Let’s make something worth using.",
-      footerCtaLabel:
-        locale === "ar"
-          ? "حدثنا عما تريد بناءه"
-          : "Tell us what you’re building",
-      copyright: "INHERITIX Technologies",
-      location: locale === "ar" ? "عمان، الأردن" : "Amman, Jordan",
-    }
-  }
+    return (result.docs[0] as T | undefined) ?? null
+  })
 }
 
-export async function getNavigation(locale: Locale = "en") {
-  try {
-    const payload = await getPayloadClient()
-    return await payload.findGlobal({
-      slug: "navigation",
-      locale,
-      depth: 1,
-    })
-  } catch {
-    return {
-      items: [
-        { label: locale === "ar" ? "الخدمات" : "Services", href: "/services" },
-        { label: locale === "ar" ? "المنتجات" : "Products", href: "/products" },
-        { label: locale === "ar" ? "المشاريع" : "Projects", href: "/projects" },
-        { label: locale === "ar" ? "عن الشركة" : "About", href: "/about" },
-        { label: locale === "ar" ? "الرؤى" : "Insights", href: "/insights" },
-        { label: locale === "ar" ? "تواصل معنا" : "Contact", href: "/contact" },
-      ],
-      headerCta: {
-        label: locale === "ar" ? "ابدأ مشروعك" : "Start a Project",
-        href: "/contact",
-      },
-    }
-  }
-}
+export const getServiceBySlug = cache((slug: string, locale: Locale) =>
+  findBySlug<Service>("services", slug, locale),
+)
+export const getProductBySlug = cache((slug: string, locale: Locale) =>
+  findBySlug<Product>("products", slug, locale),
+)
+export const getProjectBySlug = cache((slug: string, locale: Locale) =>
+  findBySlug<Project>("projects", slug, locale),
+)
+export const getPostBySlug = cache((slug: string, locale: Locale) =>
+  findBySlug<Post>("posts", slug, locale),
+)
 
-export async function getHomePage(locale: Locale = "en") {
-  try {
-    const payload = await getPayloadClient()
-    return await payload.findGlobal({
-      slug: "page-home",
-      locale,
-      depth: 1,
-    })
-  } catch {
-    return null
-  }
-}
-
-export async function getAboutPage(locale: Locale = "en") {
-  try {
-    const payload = await getPayloadClient()
-    return await payload.findGlobal({
-      slug: "page-about",
-      locale,
-      depth: 1,
-    })
-  } catch {
-    return null
-  }
-}
-
-export async function getContactPage(locale: Locale = "en") {
-  try {
-    const payload = await getPayloadClient()
-    return await payload.findGlobal({
-      slug: "page-contact",
-      locale,
-      depth: 1,
-    })
-  } catch {
-    return null
-  }
-}
-
-export async function getListingPages(locale: Locale = "en") {
-  try {
-    const payload = await getPayloadClient()
-    return await payload.findGlobal({
-      slug: "listing-pages",
-      locale,
-      depth: 1,
-    })
-  } catch {
-    return null
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// SERVICES
-// ─────────────────────────────────────────────────────────────────────────────
-
-export async function getPublishedServices(locale: Locale = "en") {
-  const isDraft = await isDraftModeEnabled()
-  try {
-    const payload = await getPayloadClient()
+export const getPublishedServices = cache(async (locale: Locale) => {
+  const access = await accessArgs()
+  return run(`services list (${locale})`, async (payload) => {
     const result = await payload.find({
       collection: "services",
       locale,
-      where: getWherePublished(undefined, isDraft),
       sort: "displayOrder",
-      limit: 50,
+      pagination: false,
       depth: 1,
-      draft: isDraft,
+      ...access,
     })
-    if (result.docs.length > 0) return result.docs
-  } catch {
-    // Falls back to fallback list in development
-  }
+    return result.docs
+  })
+})
 
-  if (process.env.NODE_ENV === "production") return []
-
-  // Development baseline fallback
-  return [
-    {
-      number: "01",
-      slug: "custom-software",
-      title: locale === "ar" ? "برمجيات مخصصة" : "Custom software",
-      shortDescription:
-        locale === "ar"
-          ? "أنظمة مصممة خصيصًا لتلائم طريقة عمل شركتك الحقيقية."
-          : "Purpose-built systems shaped around the way your business actually works.",
-      heroIntro:
-        "We design and engineer custom software that reduces friction, creates operational visibility, and is built to evolve with your business.",
-      deliverables: [
-        { item: "Product and technical strategy" },
-        { item: "User journeys and service blueprints" },
-        { item: "Interface design and interactive prototypes" },
-        { item: "Production engineering and integrations" },
-        { item: "Quality assurance and launch support" },
-      ],
-      displayOrder: 1,
-    },
-    {
-      number: "02",
-      slug: "saas-platforms",
-      title: locale === "ar" ? "منصات SaaS" : "SaaS platforms",
-      shortDescription:
-        locale === "ar"
-          ? "منتجات قابلة للتوسع مصممة للتبني والاستمرار والتطور المستمر."
-          : "Scalable products designed for adoption, retention, and continuous evolution.",
-      heroIntro:
-        "We design and engineer SaaS platforms that turn complex domain workflows into products users embrace every day.",
-      deliverables: [
-        { item: "Multi-tenant architecture and security" },
-        { item: "Subscription and billing mechanics" },
-        { item: "Product analytics and retention telemetry" },
-      ],
-      displayOrder: 2,
-    },
-    {
-      number: "03",
-      slug: "erp-and-business-systems",
-      title: locale === "ar" ? "أنظمة ERP وإدارة الأعمال" : "ERP & business systems",
-      shortDescription:
-        locale === "ar"
-          ? "عمليات مترابطة، بيانات واضحة، وتقليل التدخل اليدوي."
-          : "Connected operations, clear data, and fewer manual handoffs.",
-      heroIntro:
-        "Unify disparate operational silos into reliable, real-time enterprise systems.",
-      deliverables: [
-        { item: "Data schema alignment and migration" },
-        { item: "Automated operational reporting" },
-        { item: "Role-based permission architecture" },
-      ],
-      displayOrder: 3,
-    },
-    {
-      number: "04",
-      slug: "mobile-applications",
-      title: locale === "ar" ? "تطبيقات الجوال" : "Mobile applications",
-      shortDescription:
-        locale === "ar"
-          ? "تجارب أصلية وسريعة للأشخاص أثناء تنقلهم."
-          : "Focused native-feeling experiences for people on the move.",
-      heroIntro:
-        "High-performance iOS and Android digital tools built with responsiveness, offline reliability, and clarity.",
-      deliverables: [
-        { item: "Native UX design and prototyping" },
-        { item: "Offline-first sync architectures" },
-      ],
-      displayOrder: 4,
-    },
-    {
-      number: "05",
-      slug: "ai-automation",
-      title: locale === "ar" ? "أتمتة الذكاء الاصطناعي" : "AI automation",
-      shortDescription:
-        locale === "ar"
-          ? "أتمتة عملية للقرارات المتكررة وتدفقات العمل والدعم."
-          : "Practical automation for repetitive decisions, workflows, and support.",
-      heroIntro:
-        "Empower operations with intelligent automation that respects human judgment and domain constraints.",
-      deliverables: [
-        { item: "Workflow classification and extraction" },
-        { item: "Human-in-the-loop review mechanisms" },
-      ],
-      displayOrder: 5,
-    },
-    {
-      number: "06",
-      slug: "wordpress-development",
-      title: locale === "ar" ? "تطوير ووردبريس" : "WordPress development",
-      shortDescription:
-        locale === "ar"
-          ? "أنظمة نشر سريعة ومرنة مهندسة لما وراء القوالب الجاهزة."
-          : "Fast, flexible publishing systems engineered beyond the template.",
-      heroIntro:
-        "Bespoke content management engineered with modern performance benchmarks and clean publishing workflows.",
-      deliverables: [
-        { item: "Custom block-based editorial tools" },
-        { item: "Enterprise caching and headless APIs" },
-      ],
-      displayOrder: 6,
-    },
-  ] as unknown as Record<string, unknown>[]
-}
-
-export async function getServiceBySlug(
-  slug: string,
-  locale: Locale = "en",
-  allowDraft = false,
-) {
-  const isDraft = allowDraft || (await isDraftModeEnabled())
-  try {
-    const payload = await getPayloadClient()
-    const result = await payload.find({
-      collection: "services",
-      locale,
-      where: getWherePublished({ slug: { equals: slug } }, isDraft),
-      limit: 1,
-      depth: 1,
-      draft: isDraft,
-    })
-    if (result.docs.length > 0) return result.docs[0]
-  } catch {
-    // Fall back to development data if present
-  }
-
-  if (process.env.NODE_ENV === "production") return null
-
-  const list = await getPublishedServices(locale)
-  return list.find((item) => (item as { slug: string }).slug === slug) || null
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// PRODUCTS
-// ─────────────────────────────────────────────────────────────────────────────
-
-export async function getPublishedProducts(locale: Locale = "en") {
-  const isDraft = await isDraftModeEnabled()
-  try {
-    const payload = await getPayloadClient()
+export const getPublishedProducts = cache(async (locale: Locale) => {
+  const access = await accessArgs()
+  return run(`products list (${locale})`, async (payload) => {
     const result = await payload.find({
       collection: "products",
       locale,
-      where: getWherePublished(undefined, isDraft),
       sort: "displayOrder",
-      limit: 20,
+      pagination: false,
       depth: 1,
-      draft: isDraft,
+      ...access,
     })
-    if (result.docs.length > 0) return result.docs
-  } catch {
-    // Fallback in development
-  }
+    return result.docs
+  })
+})
 
-  if (process.env.NODE_ENV === "production") return []
-
-  return [
-    {
-      slug: "logisttex",
-      name: "LOGISTTEX",
-      badge: "01 / LOGISTICS",
-      category: locale === "ar" ? "عمليات لوجستية" : "LOGISTICS OPERATIONS",
-      tagline:
-        locale === "ar" ? "كل عملية. مرئية." : "Every operation. Visible.",
-      summary:
-        locale === "ar"
-          ? "منصة عمليات لوجستية تحول الشحنات والمركبات والأداء إلى صورة واحدة واضحة."
-          : "A logistics operations platform that turns shipments, fleets, and performance into one clear picture.",
-      heroHeadline:
-        locale === "ar" ? "العمليات اللوجستية تحت السيطرة." : "Logistics, under control.",
-      heroDescription:
-        locale === "ar"
-          ? "نظام تشغيلي واحد للطلبات والأسطول والسائقين والتكاليف والقرارات اليومية."
-          : "One operational system for orders, fleets, drivers, costs, and the decisions between them.",
-      visualType: "dashboard",
-      displayOrder: 1,
-      valuePoints: [
-        {
-          label: "ONE VIEW",
-          description: "See the operation as it happens.",
-        },
-        {
-          label: "LESS CHASING",
-          description: "Keep teams and drivers coordinated.",
-        },
-        {
-          label: "BETTER SIGNAL",
-          description: "Turn activity into useful decisions.",
-        },
-      ],
-      workflowSteps: [
-        { stepNumber: "01", name: "Capture" },
-        { stepNumber: "02", name: "Plan" },
-        { stepNumber: "03", name: "Dispatch" },
-        { stepNumber: "04", name: "Track" },
-        { stepNumber: "05", name: "Settle" },
-      ],
-    },
-    {
-      slug: "fen-el-menu",
-      name: "Fen El Menu",
-      badge: "02 / HOSPITALITY",
-      category: locale === "ar" ? "تجربة المطاعم" : "RESTAURANT EXPERIENCE",
-      tagline:
-        locale === "ar"
-          ? "من القائمة إلى الطلب، بسلاسة."
-          : "From menu to order, beautifully.",
-      summary:
-        locale === "ar"
-          ? "طلب رقمي أنيق يبسّط الاختيار ويجعل إدارة القائمة أسرع."
-          : "A refined ordering experience that makes choosing simple and menu management faster.",
-      heroHeadline:
-        locale === "ar"
-          ? "طريقة أفضل للتصفح والاختيار والطلب."
-          : "A better way to browse, choose, and order.",
-      heroDescription:
-        locale === "ar"
-          ? "تجربة قائمة وطلب مرنة للمطاعم التي تهتم بكل تفصيل."
-          : "A flexible digital menu designed to make ordering feel natural—and menu operations feel manageable.",
-      visualType: "phone",
-      displayOrder: 2,
-      valuePoints: [
-        {
-          label: "EASY CHOICE",
-          description: "Readable menus, modifiers, and details.",
-        },
-        {
-          label: "FASTER UPDATES",
-          description: "Change items and availability centrally.",
-        },
-        {
-          label: "BRAND-READY",
-          description: "An experience that feels like your restaurant.",
-        },
-      ],
-      workflowSteps: [
-        { stepNumber: "01", name: "Browse" },
-        { stepNumber: "02", name: "Customize" },
-        { stepNumber: "03", name: "Review" },
-        { stepNumber: "04", name: "Order" },
-        { stepNumber: "05", name: "Enjoy" },
-      ],
-    },
-  ] as unknown as Record<string, unknown>[]
-}
-
-export async function getProductBySlug(
-  slug: string,
-  locale: Locale = "en",
-  allowDraft = false,
-) {
-  const isDraft = allowDraft || (await isDraftModeEnabled())
-  try {
-    const payload = await getPayloadClient()
+export const getPublishedPosts = cache(async (locale: Locale, limit = 12) => {
+  const access = await accessArgs()
+  return run(`posts list (${locale})`, async (payload) => {
     const result = await payload.find({
-      collection: "products",
+      collection: "posts",
       locale,
-      where: getWherePublished({ slug: { equals: slug } }, isDraft),
-      limit: 1,
+      sort: "-publishedAt",
+      limit,
       depth: 1,
-      draft: isDraft,
+      ...access,
     })
-    if (result.docs.length > 0) return result.docs[0]
-  } catch {
-    // Development fallback
-  }
-
-  if (process.env.NODE_ENV === "production") return null
-
-  const list = await getPublishedProducts(locale)
-  return list.find((item) => (item as { slug: string }).slug === slug) || null
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// PROJECTS (CLIENT WORK)
-// ─────────────────────────────────────────────────────────────────────────────
+    return result.docs
+  })
+})
 
 export interface ProjectQueryOptions {
-  filter?: string
+  sector?: string
   page?: number
   limit?: number
-  allowDraft?: boolean
+}
+
+export type ProjectListing = {
+  docs: Array<Project | DevelopmentFixtureProject>
+  totalDocs: number
+  totalPages: number
+  page: number
+  sectors: string[]
+  isDevelopmentFixture: boolean
 }
 
 export async function getPublishedProjects(
-  locale: Locale = "en",
-  options: ProjectQueryOptions = {},
-) {
-  const { filter = "all", page = 1, limit = 12, allowDraft = false } = options
-  const isDraft = allowDraft || (await isDraftModeEnabled())
+  locale: Locale,
+  { sector, page = 1, limit = 12 }: ProjectQueryOptions = {},
+): Promise<ProjectListing> {
+  const access = await accessArgs()
+  const where: Where | undefined = sector && sector !== "all" ? { sector: { equals: sector } } : undefined
 
-  const whereExtra: Where | undefined =
-    filter && filter !== "all" ? { sector: { equals: filter } } : undefined
-
-  try {
-    const payload = await getPayloadClient()
-    const result = await payload.find({
-      collection: "projects",
-      locale,
-      where: getWherePublished(whereExtra, isDraft),
-      sort: "displayOrder",
-      page,
-      limit,
-      depth: 2,
-      draft: isDraft,
-    })
+  const listing = await run(`projects list (${locale})`, async (payload) => {
+    const [result, all] = await Promise.all([
+      payload.find({
+        collection: "projects",
+        locale,
+        where,
+        sort: "displayOrder",
+        page,
+        limit,
+        depth: 1,
+        ...access,
+      }),
+      payload.find({
+        collection: "projects",
+        locale,
+        pagination: false,
+        depth: 0,
+        select: { sector: true },
+        ...access,
+      }),
+    ])
+    const sectors = [...new Set(all.docs.map((doc) => doc.sector).filter(Boolean))] as string[]
     return {
-      docs: result.docs,
+      docs: result.docs as ProjectListing["docs"],
       totalDocs: result.totalDocs,
-      totalPages: result.totalPages,
-      page: result.page || 1,
-      hasPrevPage: result.hasPrevPage,
-      hasNextPage: result.hasNextPage,
+      totalPages: Math.max(1, result.totalPages),
+      page: result.page ?? 1,
+      sectors,
+      isDevelopmentFixture: false,
     }
-  } catch {
-    // Fallback during development
-  }
-
-  // Strictly return empty in production if DB is empty
-  if (process.env.NODE_ENV === "production") {
-    return {
-      docs: [],
-      totalDocs: 0,
-      totalPages: 1,
-      page: 1,
-      hasPrevPage: false,
-      hasNextPage: false,
-    }
-  }
-
-  // Development fixtures
-  const { projectFixtures } = await import("@/content/development-fixtures")
-  const filtered = projectFixtures.filter((p) => {
-    if (filter === "all") return true
-    return p.sector.en === filter || p.sector.ar === filter
   })
 
-  return {
-    docs: filtered.map((p) => ({
-      id: p.id,
-      slug: p.slug,
-      title: p.title[locale],
-      summary: p.summary[locale],
-      sector: p.sector[locale],
-      services: p.services.map((s) => ({ name: s[locale] })),
-      year: p.year,
-      cardImage: {
-        url: p.cardImage.src,
-        alt: p.cardImage.alt[locale],
-        width: p.cardImage.width,
-        height: p.cardImage.height,
-      },
-      heroImage: {
-        url: p.heroImage.src,
-        alt: p.heroImage.alt[locale],
-        width: p.heroImage.width,
-        height: p.heroImage.height,
-      },
-      featured: p.featured,
-      blocks: p.blocks,
-      isDevelopmentFixture: true,
-    })),
-    totalDocs: filtered.length,
-    totalPages: 1,
-    page: 1,
-    hasPrevPage: false,
-    hasNextPage: false,
+  if (listing.totalDocs === 0 && !where && developmentFixturesEnabled()) {
+    return developmentFixtureListing(locale)
   }
+  return listing
 }
 
-export async function getProjectBySlug(
-  slug: string,
-  locale: Locale = "en",
-  allowDraft = false,
-) {
-  const isDraft = allowDraft || (await isDraftModeEnabled())
-  try {
-    const payload = await getPayloadClient()
+/** Published projects selected as "related", in editor order; unpublished picks are skipped. */
+export function resolveRelatedProjects(project: Project, viewer: Viewer) {
+  const related = (project.relatedProjects ?? []).filter(
+    (item): item is Project => typeof item === "object" && item !== null,
+  )
+  return viewer.draft ? related : related.filter((item) => item._status === "published")
+}
+
+export const getFeaturedProjects = cache(async (locale: Locale, limit = 3) => {
+  const access = await accessArgs()
+  return run(`featured projects (${locale})`, async (payload) => {
     const result = await payload.find({
       collection: "projects",
       locale,
-      where: getWherePublished({ slug: { equals: slug } }, isDraft),
-      limit: 1,
-      depth: 2,
-      draft: isDraft,
+      where: { featured: { equals: true } },
+      sort: "displayOrder",
+      limit,
+      depth: 1,
+      ...access,
     })
-    if (result.docs.length > 0) return result.docs[0]
-  } catch {
-    // Development fallback
-  }
+    return result.docs
+  })
+})
 
-  if (process.env.NODE_ENV === "production") return null
+// ─── Translation availability (hreflang) ────────────────────────────────────
 
+const TITLE_FIELD: Record<RoutableSlug, string> = {
+  projects: "title",
+  posts: "title",
+  services: "title",
+  products: "tagline",
+}
+
+/**
+ * Which locales have their own (non-fallback) content for a record. Used so
+ * language alternates are only advertised when a real translation exists.
+ */
+export const getTranslatedLocales = cache(
+  async (collection: RoutableSlug, id: number | string): Promise<Locale[]> => {
+    const access = await accessArgs()
+    return run(`${collection} ${id} translations`, async (payload) => {
+      const field = TITLE_FIELD[collection]
+      const locales: Locale[] = []
+      for (const locale of ["en", "ar"] as const) {
+        const doc = (await payload.findByID({
+          collection,
+          id,
+          locale,
+          fallbackLocale: false,
+          depth: 0,
+          select: { [field]: true },
+          ...access,
+        })) as unknown as Record<string, unknown>
+        if (typeof doc?.[field] === "string" && (doc[field] as string).trim()) locales.push(locale)
+      }
+      return locales
+    })
+  },
+)
+
+// ─── Redirects ──────────────────────────────────────────────────────────────
+
+export async function getRedirectForPath(pathname: string) {
+  const { resolveStoredRedirect } = await import("./redirects")
+  return run(`redirect lookup ${pathname}`, (payload) => resolveStoredRedirect(payload, pathname))
+}
+
+// ─── Sitemap ────────────────────────────────────────────────────────────────
+
+export type SitemapRecord = {
+  collection: RoutableSlug
+  slug: string
+  updatedAt: string
+  locales: Locale[]
+}
+
+/** All published, indexable records across every page of results. */
+export async function getSitemapRecords(): Promise<SitemapRecord[]> {
+  return run("sitemap records", async (payload) => {
+    const records: SitemapRecord[] = []
+    for (const collection of ["services", "products", "projects", "posts"] as const) {
+      const field = TITLE_FIELD[collection]
+      const translated = new Map<string, Set<Locale>>()
+      for (const locale of ["en", "ar"] as const) {
+        let page = 1
+        for (;;) {
+          const result = await payload.find({
+            collection,
+            locale,
+            fallbackLocale: false,
+            where: {
+              or: [{ "seo.noIndex": { equals: false } }, { "seo.noIndex": { exists: false } }],
+            },
+            sort: "id",
+            page,
+            limit: 100,
+            depth: 0,
+            select: { slug: true, updatedAt: true, [field]: true },
+            overrideAccess: false,
+            draft: false,
+          })
+          for (const doc of result.docs as unknown as Array<Record<string, string>>) {
+            const key = `${doc.slug}|${doc.updatedAt}`
+            if (!translated.has(key)) translated.set(key, new Set())
+            if (typeof doc[field] === "string" && doc[field].trim()) translated.get(key)!.add(locale)
+          }
+          if (!result.hasNextPage) break
+          page += 1
+        }
+      }
+      for (const [key, locales] of translated) {
+        const [slug, updatedAt] = key.split("|") as [string, string]
+        if (locales.size > 0) records.push({ collection, slug, updatedAt, locales: [...locales] })
+      }
+    }
+    return records
+  })
+}
+
+// ─── Development fixtures (explicit opt-in only) ────────────────────────────
+
+export type DevelopmentFixtureProject = {
+  id: string
+  slug: string
+  title: string
+  summary: string
+  sector: string
+  year: string
+  cardImage: Pick<Media, "url" | "alt" | "width" | "height">
+  isDevelopmentFixture: true
+}
+
+function developmentFixturesEnabled() {
+  return process.env.NODE_ENV !== "production" && process.env.INHERITIX_DEV_FIXTURES === "true"
+}
+
+/** Fixture detail page (explicit dev opt-in, only when no CMS record has the slug). */
+export async function getDevelopmentFixtureProject(slug: string, locale: Locale) {
+  if (!developmentFixturesEnabled()) return null
   const { projectFixtures } = await import("@/content/development-fixtures")
   const found = projectFixtures.find((p) => p.slug === slug)
   if (!found) return null
-
   return {
     id: found.id,
     slug: found.slug,
     title: found.title[locale],
     summary: found.summary[locale],
     sector: found.sector[locale],
-    services: found.services.map((s) => ({ name: s[locale] })),
     year: found.year,
+    services: found.services.map((s) => ({ name: s[locale] })),
+    heroImage: { url: found.heroImage.src, alt: found.heroImage.alt[locale], width: 1600, height: 1200 },
+    blocks: found.blocks.map((block) =>
+      block.blockType === "cta"
+        ? { ...block, actionLabel: block.action.label, actionHref: block.action.href[locale] }
+        : block,
+    ),
+    isDevelopmentFixture: true as const,
+  }
+}
+
+async function developmentFixtureListing(locale: Locale): Promise<ProjectListing> {
+  const { projectFixtures } = await import("@/content/development-fixtures")
+  const docs: DevelopmentFixtureProject[] = projectFixtures.map((p) => ({
+    id: p.id,
+    slug: p.slug,
+    title: p.title[locale],
+    summary: p.summary[locale],
+    sector: p.sector[locale],
+    year: p.year,
     cardImage: {
-      url: found.cardImage.src,
-      alt: found.cardImage.alt[locale],
-      width: found.cardImage.width,
-      height: found.cardImage.height,
+      url: p.cardImage.src,
+      alt: p.cardImage.alt[locale],
+      width: p.cardImage.width,
+      height: p.cardImage.height,
     },
-    heroImage: {
-      url: found.heroImage.src,
-      alt: found.heroImage.alt[locale],
-      width: found.heroImage.width,
-      height: found.heroImage.height,
-    },
-    featured: found.featured,
-    blocks: found.blocks,
-    relatedProjects: [],
+    isDevelopmentFixture: true,
+  }))
+  return {
+    docs,
+    totalDocs: docs.length,
+    totalPages: 1,
+    page: 1,
+    sectors: [...new Set(docs.map((d) => d.sector))],
     isDevelopmentFixture: true,
   }
-}
-
-export async function getFeaturedProjects(locale: Locale = "en", limit = 3) {
-  const isDraft = await isDraftModeEnabled()
-  try {
-    const payload = await getPayloadClient()
-    const result = await payload.find({
-      collection: "projects",
-      locale,
-      where: getWherePublished({ featured: { equals: true } }, isDraft),
-      sort: "displayOrder",
-      limit,
-      depth: 2,
-      draft: isDraft,
-    })
-    if (result.docs.length > 0) return result.docs
-  } catch {
-    // Development fallback
-  }
-
-  if (process.env.NODE_ENV === "production") return []
-
-  const { projectFixtures } = await import("@/content/development-fixtures")
-  return projectFixtures.filter((p) => p.featured).slice(0, limit)
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// POSTS (ARTICLES / INSIGHTS)
-// ─────────────────────────────────────────────────────────────────────────────
-
-export async function getPublishedPosts(locale: Locale = "en", limit = 10) {
-  const isDraft = await isDraftModeEnabled()
-  try {
-    const payload = await getPayloadClient()
-    const result = await payload.find({
-      collection: "posts",
-      locale,
-      where: getWherePublished(undefined, isDraft),
-      sort: "-publishedAt",
-      limit,
-      depth: 2,
-      draft: isDraft,
-    })
-    if (result.docs.length > 0) return result.docs
-  } catch {
-    // Development fallback
-  }
-
-  if (process.env.NODE_ENV === "production") return []
-
-  return [
-    {
-      slug: "software-people-adopt",
-      title:
-        locale === "ar"
-          ? "كيف تبني برمجيات أعمال يعتمد عليها الناس حقًا"
-          : "How to build business software people actually adopt",
-      categoryLabel: "PRODUCT THINKING",
-      readTime: "7 min read",
-      color: "ink",
-      excerpt:
-        "Adoption is not a training problem. It is the accumulated result of product decisions made long before launch.",
-    },
-    {
-      slug: "automation-with-judgment",
-      title:
-        locale === "ar"
-          ? "الأتمتة تحتاج إلى حكمة، وليس مجرد نموذج ذكاء اصطناعي"
-          : "Automation needs judgment, not just a model",
-      categoryLabel: "AI & AUTOMATION",
-      readTime: "6 min read",
-      color: "blue",
-      excerpt:
-        "Practical automation is built around exceptional handling and human verification, not opaque black boxes.",
-    },
-    {
-      slug: "designing-operational-clarity",
-      title:
-        locale === "ar"
-          ? "التصميم لتحقيق الوضوح التشغيلي"
-          : "Designing for operational clarity",
-      categoryLabel: "DESIGN",
-      readTime: "9 min read",
-      color: "cyan",
-      excerpt:
-        "Why visual simplicity alone is insufficient for heavy data systems, and how to structure interfaces around next decisions.",
-    },
-  ] as unknown as Record<string, unknown>[]
-}
-
-export async function getPostBySlug(
-  slug: string,
-  locale: Locale = "en",
-  allowDraft = false,
-) {
-  const isDraft = allowDraft || (await isDraftModeEnabled())
-  try {
-    const payload = await getPayloadClient()
-    const result = await payload.find({
-      collection: "posts",
-      locale,
-      where: getWherePublished({ slug: { equals: slug } }, isDraft),
-      limit: 1,
-      depth: 2,
-      draft: isDraft,
-    })
-    if (result.docs.length > 0) return result.docs[0]
-  } catch {
-    // Development fallback
-  }
-
-  if (process.env.NODE_ENV === "production") return null
-
-  const list = await getPublishedPosts(locale)
-  return list.find((item) => (item as { slug: string }).slug === slug) || null
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// REDIRECTS
-// ─────────────────────────────────────────────────────────────────────────────
-
-export async function getRedirectForPath(pathname: string) {
-  try {
-    const payload = await getPayloadClient()
-    const result = await payload.find({
-      collection: "redirects",
-      where: { from: { equals: pathname } },
-      limit: 1,
-    })
-    if (result.docs.length > 0) return result.docs[0]
-  } catch {
-    // Ignore
-  }
-
-  // Built-in rule redirects:
-  if (pathname === "/work") return { to: "/projects", statusCode: "308" }
-  if (pathname === "/ar/work") return { to: "/ar/projects", statusCode: "308" }
-  if (pathname.startsWith("/work/")) {
-    return { to: `/projects/${pathname.slice(6)}`, statusCode: "308" }
-  }
-  if (pathname.startsWith("/ar/work/")) {
-    return { to: `/ar/projects/${pathname.slice(9)}`, statusCode: "308" }
-  }
-
-  return null
 }

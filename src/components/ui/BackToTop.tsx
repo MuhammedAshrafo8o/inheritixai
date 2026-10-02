@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from "react"
 import { Arrow } from "./Icons"
 
-export function BackToTop({ lang }: { lang: "en" | "ar" }) {
+export function BackToTop({ label }: { label: string }) {
   const [showTop, setShowTop] = useState(false)
 
   useEffect(() => {
@@ -17,7 +17,7 @@ export function BackToTop({ lang }: { lang: "en" | "ar" }) {
     <button
       type="button"
       className={`back-to-top ${showTop ? "visible" : ""}`}
-      aria-label={lang === "en" ? "Back to top" : "العودة إلى الأعلى"}
+      aria-label={label}
       onClick={() => {
         const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches
         window.scrollTo({ top: 0, behavior: reduced ? "auto" : "smooth" })

@@ -1,11 +1,12 @@
 import type { GlobalConfig } from "payload"
 import { canManageContent } from "../../cms/access"
+import { revalidateGlobalAfterChange } from "../hooks/revalidate"
 
-const hexColorRegex = /^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/
+const hexColorRegex = /^#([A-Fa-f0-9]{6})$/
 
 function validateHex(val: string | null | undefined): true | string {
   if (!val) return true
-  return hexColorRegex.test(val) ? true : "Must be a valid hex color code (e.g. #00CCFF)."
+  return hexColorRegex.test(val) ? true : "Must be a 6-digit hex color code (e.g. #00CCFF)."
 }
 
 export const SiteSettings: GlobalConfig = {
@@ -13,6 +14,9 @@ export const SiteSettings: GlobalConfig = {
   access: {
     read: () => true,
     update: canManageContent,
+  },
+  hooks: {
+    afterChange: [revalidateGlobalAfterChange],
   },
   fields: [
     {
@@ -22,29 +26,60 @@ export const SiteSettings: GlobalConfig = {
       required: true,
     },
     {
+      name: "branding",
+      type: "group",
+      admin: {
+        description: "Logos and favicon used in the website header, footer and browser tab.",
+      },
+      fields: [
+        {
+          name: "logo",
+          type: "upload",
+          relationTo: "media",
+          admin: { description: "Header logo on light background (SVG or PNG). Falls back to the INHERITIX mark." },
+        },
+        {
+          name: "logoLight",
+          type: "upload",
+          relationTo: "media",
+          admin: { description: "Footer logo on dark background. Falls back to the header logo." },
+        },
+        {
+          name: "favicon",
+          type: "upload",
+          relationTo: "media",
+          admin: { description: "Square PNG or SVG, at least 48×48." },
+        },
+      ],
+    },
+    {
       name: "brandColors",
       type: "group",
       admin: {
-        description: "Validated brand colors used across UI accents.",
+        description:
+          "Validated brand colors applied to the website design tokens. Defaults match the approved design.",
       },
       fields: [
         {
           name: "primary",
           type: "text",
-          defaultValue: "#0066FF",
+          defaultValue: "#0178B2",
           validate: validateHex,
+          admin: { description: "Primary blue (--blue): links, active navigation, accent headline." },
         },
         {
           name: "accent",
           type: "text",
           defaultValue: "#00CCFF",
           validate: validateHex,
+          admin: { description: "Accent cyan (--cyan): highlights, focus rings, progress bar." },
         },
         {
           name: "dark",
           type: "text",
-          defaultValue: "#060A11",
+          defaultValue: "#0F243D",
           validate: validateHex,
+          admin: { description: "Ink navy (--navy): body text, dark sections, buttons." },
         },
       ],
     },
@@ -85,6 +120,8 @@ export const SiteSettings: GlobalConfig = {
           name: "url",
           type: "text",
           required: true,
+          validate: (val: string | null | undefined) =>
+            !val || /^https:\/\//.test(val) ? true : "Social links must be https:// URLs.",
         },
       ],
     },
@@ -114,6 +151,7 @@ export const SiteSettings: GlobalConfig = {
     {
       name: "location",
       type: "text",
+      localized: true,
       defaultValue: "Amman, Jordan",
     },
   ],

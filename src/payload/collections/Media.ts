@@ -1,6 +1,7 @@
 import path from "path"
 import type { CollectionConfig } from "payload"
 import { canDeleteContent, canManageContent } from "../../cms/access"
+import { revalidateAllAfterChange, revalidateAllAfterDelete } from "../hooks/revalidate"
 
 export const Media: CollectionConfig = {
   slug: "media",
@@ -34,6 +35,10 @@ export const Media: CollectionConfig = {
     create: canManageContent,
     update: canManageContent,
     delete: canDeleteContent,
+  },
+  hooks: {
+    afterChange: [revalidateAllAfterChange],
+    afterDelete: [revalidateAllAfterDelete],
   },
   admin: {
     useAsTitle: "filename",

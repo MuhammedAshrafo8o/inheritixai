@@ -26,28 +26,38 @@ interface ProjectDoc {
 interface ProjectFilterGridProps {
   lang: "en" | "ar"
   initialProjects: ProjectDoc[]
-  totalDocs: number
+  /** Distinct sectors of the projects visible to this viewer (localized). */
+  sectors: string[]
+  currentSector: string
   totalPages: number
   currentPage: number
+  labels: {
+    allProjects: string
+    previousPage: string
+    nextPage: string
+    viewProject: string
+    filterProjects: string
+    projectPages: string
+  }
 }
-
-const filters = [
-  { value: "all", en: "All projects", ar: "كل المشاريع" },
-  { value: "Enterprise operations", en: "Operations", ar: "العمليات" },
-  { value: "Digital services", en: "Digital services", ar: "الخدمات الرقمية" },
-]
 
 export function ProjectFilterGrid({
   lang,
   initialProjects,
+  sectors,
+  currentSector,
   totalPages,
   currentPage,
+  labels,
 }: ProjectFilterGridProps) {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
 
-  const currentSector = searchParams.get("sector") || "all"
+  // The sector filter needs its "all" label; without it the filter bar is hidden.
+  const filters = labels.allProjects && sectors.length > 0
+    ? [{ value: "all", label: labels.allProjects }, ...sectors.map((sector) => ({ value: sector, label: sector }))]
+    : []
 
   const updateFilters = (newSector: string) => {
     const params = new URLSearchParams(searchParams.toString())
@@ -71,9 +81,9 @@ export function ProjectFilterGrid({
     router.push(`${pathname}?${params.toString()}`)
   }
 
-  // Client-side filtering fallback if static or fixture
+  // The server already filtered by sector; fixtures (dev opt-in) are filtered here.
   const visibleProjects = initialProjects.filter((project) => {
-    if (currentSector === "all") return true
+    if (currentSector === "all" || !project.isDevelopmentFixture) return true
     return project.sector === currentSector
   })
 
@@ -92,9 +102,10 @@ export function ProjectFilterGrid({
         </div>
       )}
 
+      {filters.length > 0 && (
       <div
         className="project-filters reveal"
-        aria-label={lang === "ar" ? "تصفية المشاريع" : "Filter projects"}
+        aria-label={labels.filterProjects || undefined}
       >
         {filters.map((item) => (
           <button
@@ -104,10 +115,11 @@ export function ProjectFilterGrid({
             aria-pressed={currentSector === item.value}
             onClick={() => updateFilters(item.value)}
           >
-            {item[lang]}
+            {item.label}
           </button>
         ))}
       </div>
+      )}
 
       <div className="projects-grid" aria-live="polite">
         {visibleProjects.map((project) => {
@@ -139,9 +151,7 @@ export function ProjectFilterGrid({
                 </Link>
               </h2>
               <p>{project.summary}</p>
-              <Action to={detailUrl}>
-                {lang === "ar" ? "عرض المشروع" : "View project"}
-              </Action>
+              {labels.viewProject && <Action to={detailUrl}>{labels.viewProject}</Action>}
             </article>
           )
         })}
@@ -150,12 +160,12 @@ export function ProjectFilterGrid({
       {totalPages > 1 && (
         <nav
           className="project-pagination reveal"
-          aria-label={lang === "ar" ? "صفحات المشاريع" : "Project pages"}
+          aria-label={labels.projectPages || undefined}
         >
           <button
             type="button"
             disabled={currentPage <= 1}
-            aria-label={lang === "ar" ? "الصفحة السابقة" : "Previous page"}
+            aria-label={labels.previousPage}
             onClick={() => updatePage(currentPage - 1)}
           >
             <Arrow reverse />
@@ -176,7 +186,7 @@ export function ProjectFilterGrid({
           <button
             type="button"
             disabled={currentPage >= totalPages}
-            aria-label={lang === "ar" ? "الصفحة التالية" : "Next page"}
+            aria-label={labels.nextPage}
             onClick={() => updatePage(currentPage + 1)}
           >
             <Arrow />

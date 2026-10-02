@@ -1,0 +1,115 @@
+=== /tmp/seed1.log
+
+> inheritix-website@1.0.0 seed
+> payload run scripts/seed.ts
+
+🌱 Seeding Inheritix content into 127.0.0.1:5433/inheritix_m2 (NODE_ENV=development)
+→ Checking administrators
+  ! No administrator exists yet. Run `npm run bootstrap:users` (credentials are read from the environment or prompted, never defaulted).
+→ Services
+→ Products
+→ Categories & author
+→ Articles
+→ Sample projects (drafts)
+→ Globals
+
+Created (27):
+  + service:custom-software (published)
+  + service:saas-platforms (published)
+  + service:erp-and-business-systems (published)
+  + service:mobile-applications (published)
+  + service:ai-automation (published)
+  + service:wordpress-development (published)
+  + product:logisttex (published)
+  + product:fen-el-menu (published)
+  + category:product-thinking
+  + category:ai-and-automation
+  + category:design
+  + author:INHERITIX Editorial
+  + post:software-people-adopt (published)
+  + post:automation-with-judgment (draft)
+  + post:designing-operational-clarity (draft)
+  + media:operations-platform.svg
+  + client:Sample client (unapproved)
+  + project:operations-platform (draft, unapproved sample)
+  + media:service-platform.svg
+  + project:service-platform (draft, unapproved sample)
+  + global:site-settings
+  + global:navigation
+  + global:page-home
+  + global:page-about
+  + global:page-contact
+  + global:listing-pages
+  + global:site-labels
+Kept existing, untouched (0):
+
+✅ Seed finished without errors.
+=== /tmp/b1.log
+
+> inheritix-website@1.0.0 bootstrap:users
+> payload run scripts/bootstrap-users.ts
+
+→ Auditing existing accounts for published default passwords
+  ✗ admin@inheritixai.com used a published default password. The account is now locked with an unknown password; supply a new password for it via this command.
+
+1 account(s) remain locked until a new password is supplied.
+
+✅ Account bootstrap finished.
+=== /tmp/b2.log
+
+> inheritix-website@1.0.0 bootstrap:users
+> payload run scripts/bootstrap-users.ts
+
+→ Auditing existing accounts for published default passwords
+  ✓ No account uses a published default password.
+→ Applying supplied accounts
+  ✓ Updated admin admin@inheritixai.com (password replaced, roles: admin).
+  ✓ Created editor editor@inheritixai.com.
+
+✅ Account bootstrap finished.
+=== /tmp/m1.log
+
+> inheritix-website@1.0.0 migrate
+> payload migrate
+
+[05:03:41] INFO: Reading migration files from C:\Users\user\Desktop\inheritix\new site final\src\migrations
+[05:03:42] INFO: Migrating: 20261002_013702_milestone_two_schema
+[05:03:47] INFO: Migrated:  20261002_013702_milestone_two_schema (5073ms)
+[05:03:47] INFO: Done.
+=== /tmp/seedfail.log
+
+> inheritix-website@1.0.0 seed
+> payload run scripts/seed.ts
+
+🌱 Seeding Inheritix content into 127.0.0.1:5999/nowhere (NODE_ENV=development)
+[05:08:05] ERROR: Error: cannot connect to Postgres. Details: connect ECONNREFUSED 127.0.0.1:5999
+    err: {
+      "type": "Error",
+      "message": "connect ECONNREFUSED 127.0.0.1:5999",
+      "stack":
+          Error: connect ECONNREFUSED 127.0.0.1:5999
+              at C:\Users\user\Desktop\inheritix\new site final\node_modules\.pnpm\pg-pool@3.14.0_pg@8.20.0\node_modules\pg-pool\index.js:45:11
+              at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+              at async connectWithReconnect (C:\Users\user\Desktop\inheritix\new site final\node_modules\.pnpm\@payloadcms+db-postgres@3.9_fe415b86c6b5d3c5ba6d1d512cd66dda\node_modules\@payloadcms\db-postgres\src\connect.ts:22:14)
+              at async Object.connect (C:\Users\user\Desktop\inheritix\new site final\node_modules\.pnpm\@payloadcms+db-postgres@3.9_fe415b86c6b5d3c5ba6d1d512cd66dda\node_modules\@payloadcms\db-postgres\src\connect.ts:58:7)
+              at async BasePayload.init (C:\Users\user\Desktop\inheritix\new site final\node_modules\.pnpm\payload@3.90.2_graphql@16.14.2_typescript@5.9.3\node_modules\payload\src\index.ts:914:7)
+              at async getPayload (C:\Users\user\Desktop\inheritix\new site final\node_modules\.pnpm\payload@3.90.2_graphql@16.14.2_typescript@5.9.3\node_modules\payload\src\index.ts:1226:22)
+              at async main (C:\Users\user\Desktop\inheritix\new site final\scripts\seed.ts:1048:13)
+              at async <anonymous> (C:\Users\user\Desktop\inheritix\new site final\scripts\seed.ts:1077:3)
+      "errno": -4078,
+      "code": "ECONNREFUSED",
+      "syscall": "connect",
+      "address": "127.0.0.1",
+      "port": 5999
+    }
+
+❌ Seed failed — no success reported. Fix the error below and re-run (the seed is idempotent).
+Error: Error: cannot connect to Postgres: connect ECONNREFUSED 127.0.0.1:5999
+    at Object.connect (C:\Users\user\Desktop\inheritix\new site final\node_modules\.pnpm\@payloadcms+db-postgres@3.9_fe415b86c6b5d3c5ba6d1d512cd66dda\node_modules\@payloadcms\db-postgres\src\connect.ts:112:11)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async BasePayload.init (C:\Users\user\Desktop\inheritix\new site final\node_modules\.pnpm\payload@3.90.2_graphql@16.14.2_typescript@5.9.3\node_modules\payload\src\index.ts:914:7)
+    at async getPayload (C:\Users\user\Desktop\inheritix\new site final\node_modules\.pnpm\payload@3.90.2_graphql@16.14.2_typescript@5.9.3\node_modules\payload\src\index.ts:1226:22)
+    at async main (C:\Users\user\Desktop\inheritix\new site final\scripts\seed.ts:1048:13)
+    at async <anonymous> (C:\Users\user\Desktop\inheritix\new site final\scripts\seed.ts:1077:3) {
+  payloadInitError: true
+}

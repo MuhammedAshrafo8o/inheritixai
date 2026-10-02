@@ -3,7 +3,9 @@ import { fileURLToPath } from "url"
 import { postgresAdapter } from "@payloadcms/db-postgres"
 import { lexicalEditor } from "@payloadcms/richtext-lexical"
 import { buildConfig } from "payload"
+import sharp from "sharp"
 
+import { getServerEnv } from "./env"
 import { Users } from "./payload/collections/Users"
 import { Media } from "./payload/collections/Media"
 import { Clients } from "./payload/collections/Clients"
@@ -26,11 +28,20 @@ import { SiteLabels } from "./payload/globals/SiteLabels"
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
 
+// Throws a descriptive EnvironmentConfigError when secrets or the database
+// connection string are missing — Payload never starts with defaults.
+const env = getServerEnv()
+
 export default buildConfig({
+  serverURL: env.SITE_URL,
   admin: {
     user: Users.slug,
     importMap: {
       baseDir: path.resolve(dirname),
+      importMapFile: path.resolve(dirname, "app/(payload)/admin/importMap.ts"),
+    },
+    meta: {
+      titleSuffix: " — Inheritix CMS",
     },
   },
   collections: [
@@ -55,9 +66,8 @@ export default buildConfig({
     SiteLabels,
   ],
   editor: lexicalEditor(),
-  secret:
-    process.env.PAYLOAD_SECRET ||
-    "inheritix-default-payload-secret-development-only-replace-in-production",
+  secret: env.PAYLOAD_SECRET,
+  sharp,
   localization: {
     locales: [
       {
@@ -78,10 +88,11 @@ export default buildConfig({
   },
   db: postgresAdapter({
     pool: {
-      connectionString:
-        process.env.DATABASE_URI ||
-        "postgresql://postgres:postgres@127.0.0.1:5432/inheritix",
+      connectionString: env.DATABASE_URI,
     },
+    // Schema changes ship only through versioned migrations. Automatic dev
+    // push is disabled so it can never mask a missing or broken migration.
+    push: false,
     migrationDir: path.resolve(dirname, "migrations"),
   }),
 })

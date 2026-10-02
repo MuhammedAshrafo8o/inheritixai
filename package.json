@@ -9,11 +9,17 @@
     "start": "next start -p 8443",
     "typecheck": "tsc --noEmit",
     "format": "oxfmt .",
-    "payload": "payload",
-    "generate:types": "payload generate:types",
-    "generate:importmap": "payload generate:importmap",
-    "migrate": "payload migrate",
-    "seed": "node --experimental-strip-types scripts/seed.ts"
+    "payload": "node scripts/payload.mjs",
+    "generate:types": "node scripts/payload.mjs generate:types",
+    "generate:importmap": "node scripts/payload.mjs generate:importmap",
+    "migrate": "node scripts/payload.mjs migrate",
+    "seed": "node scripts/payload.mjs run scripts/seed.ts",
+    "migrate:status": "node scripts/payload.mjs migrate:status",
+    "migrate:create": "node scripts/payload.mjs migrate:create",
+    "migrate:check": "node scripts/payload.mjs migrate:create drift_check --skip-empty",
+    "bootstrap:users": "node scripts/payload.mjs run scripts/bootstrap-users.ts",
+    "test:integration": "node scripts/payload.mjs run scripts/integration-check.ts",
+    "test:content-controls": "node scripts/payload.mjs run scripts/content-controls-check.ts"
   },
   "dependencies": {
     "@payloadcms/db-postgres": "3.90.2",
@@ -24,7 +30,8 @@
     "next": "15.4.11",
     "payload": "3.90.2",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "sharp": "0.34.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.14",

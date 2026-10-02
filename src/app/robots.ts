@@ -1,16 +1,16 @@
 import type { MetadataRoute } from "next"
-
-const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://inheritixai.com"
+import { getSiteUrl } from "@/env"
 
 export default function robots(): MetadataRoute.Robots {
+  const base = getSiteUrl()
   return {
     rules: [
       {
         userAgent: "*",
         allow: "/",
-        disallow: ["/admin", "/admin/*", "/api", "/api/*"],
+        disallow: ["/admin", "/api/"],
       },
     ],
-    sitemap: `${BASE_URL}/sitemap.xml`,
+    sitemap: `${base}/sitemap.xml`,
   }
 }

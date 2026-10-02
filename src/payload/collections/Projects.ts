@@ -1,6 +1,10 @@
 import type { CollectionConfig } from "payload"
 import { canDeleteContent, canManageContent, publicOrAuthenticatedRead } from "../../cms/access"
+import { slugField } from "../fields/slug"
 import { allContentBlocks } from "../blocks"
+import { seoField } from "../fields/seo"
+import { revalidateRoutableAfterChange, revalidateRoutableAfterDelete } from "../hooks/revalidate"
+import { createPublishedSlugRedirects, detectPublishedSlugChange } from "../hooks/slugRedirects"
 
 function isValidUrl(val: string | null | undefined): true | string {
   if (!val) return true
@@ -18,9 +22,9 @@ export const Projects: CollectionConfig = {
   admin: {
     useAsTitle: "slug",
     defaultColumns: ["slug", "client", "featured", "displayOrder", "_status", "updatedAt"],
-    preview: (doc, { req }) => {
+    preview: (doc, { locale }) => {
       if (!doc?.slug) return null
-      return `/api/preview?collection=projects&slug=${doc.slug}`
+      return `/api/preview?collection=projects&slug=${encodeURIComponent(String(doc.slug))}&lang=${locale === "ar" ? "ar" : "en"}`
     },
   },
   versions: {
@@ -33,50 +37,12 @@ export const Projects: CollectionConfig = {
     delete: canDeleteContent,
   },
   hooks: {
-    afterChange: [
-      async ({ doc, previousDoc, operation, req }) => {
-        // Handle permanent redirect and slug tracking if slug changes on published document
-        if (
-          operation === "update" &&
-          previousDoc?.slug &&
-          doc.slug &&
-          previousDoc.slug !== doc.slug
-        ) {
-          try {
-            await req.payload.create({
-              collection: "redirects",
-              data: {
-                from: `/projects/${previousDoc.slug}`,
-                to: `/projects/${doc.slug}`,
-                statusCode: "308",
-              },
-            })
-            await req.payload.create({
-              collection: "redirects",
-              data: {
-                from: `/ar/projects/${previousDoc.slug}`,
-                to: `/ar/projects/${doc.slug}`,
-                statusCode: "308",
-              },
-            })
-          } catch {
-            // Redirect may already exist
-          }
-        }
-      },
-    ],
+    beforeChange: [detectPublishedSlugChange("projects", { trackHistory: true })],
+    afterChange: [createPublishedSlugRedirects("projects"), revalidateRoutableAfterChange("projects")],
+    afterDelete: [revalidateRoutableAfterDelete("projects")],
   },
   fields: [
-    {
-      name: "slug",
-      type: "text",
-      required: true,
-      unique: true,
-      index: true,
-      admin: {
-        description: "URL slug for this project (e.g. logistics-control-system).",
-      },
-    },
+    slugField(),
     {
       name: "title",
       type: "text",
@@ -217,8 +183,10 @@ export const Projects: CollectionConfig = {
       type: "relationship",
       relationTo: "projects",
       hasMany: true,
+      filterOptions: ({ id }) => (id ? { id: { not_equals: id } } : true),
       admin: {
-        description: "Related projects displayed at the bottom of the page.",
+        description:
+          "Related projects shown at the bottom of the page, in this order. Unpublished selections are skipped on the public site.",
       },
     },
     {
@@ -235,31 +203,6 @@ export const Projects: CollectionConfig = {
         },
       ],
     },
-    {
-      name: "seo",
-      type: "group",
-      fields: [
-        {
-          name: "title",
-          type: "text",
-          localized: true,
-        },
-        {
-          name: "description",
-          type: "textarea",
-          localized: true,
-        },
-        {
-          name: "ogImage",
-          type: "upload",
-          relationTo: "media",
-        },
-        {
-          name: "noIndex",
-          type: "checkbox",
-          defaultValue: false,
-        },
-      ],
-    },
+    seoField(),
   ],
 }

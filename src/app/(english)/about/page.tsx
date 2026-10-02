@@ -1,23 +1,7 @@
-import type { Metadata } from "next"
-import { getAboutPage } from "@/cms/queries"
-import { AboutPageView } from "@/components/pages/AboutPageView"
+import { AboutRoute, aboutMetadata } from "@/site/routes"
 
-export const metadata: Metadata = {
-  title: "About — Inheritix",
-  description:
-    "Product-studio confidence. Engineering-company discipline. Meet INHERITIX Technologies.",
-  alternates: {
-    canonical: "/about",
-    languages: {
-      en: "/about",
-      ar: "/ar/about",
-      "x-default": "/about",
-    },
-  },
-}
+export const generateMetadata = () => aboutMetadata("en")
 
-export default async function AboutPage() {
-  const aboutDoc = await getAboutPage("en")
-
-  return <AboutPageView lang="en" aboutDoc={aboutDoc} />
+export default function Page() {
+  return <AboutRoute locale="en" />
 }

@@ -1,31 +1,28 @@
-import { revalidatePath, revalidateTag } from "next/cache"
+import { revalidatePath } from "next/cache"
 import { NextResponse } from "next/server"
-import { projectInvalidationTargets, type ProjectMutation } from "@/cms/cache-policy"
 import { isAuthenticatedPreviewRequest } from "@/cms/preview-auth"
 
-function isMutation(value: unknown): value is ProjectMutation {
-  if (!value || typeof value !== "object") return false
-  const mutation = value as Record<string, unknown>
-  if (typeof mutation.slug !== "string") return false
-  if (mutation.event === "slug-change") {
-    return typeof mutation.previousSlug === "string"
-  }
-  return ["publish", "unpublish", "delete"].includes(String(mutation.event))
-}
+/**
+ * Manual cache invalidation for external automation (Bearer PREVIEW_SECRET).
+ * Normal editing does not need this: collection and global hooks revalidate
+ * affected paths in-process on every publish, unpublish, edit and delete.
+ */
+const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
 export async function POST(request: Request) {
   if (!isAuthenticatedPreviewRequest(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const mutation = await request.json().catch(() => null)
-  if (!isMutation(mutation)) {
-    return NextResponse.json({ error: "Invalid mutation payload" }, { status: 400 })
+  const body = (await request.json().catch(() => null)) as { slug?: unknown; previousSlug?: unknown } | null
+  const slugs = [body?.slug, body?.previousSlug].filter((s): s is string => typeof s === "string" && SLUG.test(s))
+  if (body?.slug !== undefined && slugs.length === 0) {
+    return NextResponse.json({ error: "Invalid slug" }, { status: 400 })
   }
 
-  const targets = projectInvalidationTargets(mutation)
-  for (const path of targets.paths) revalidatePath(path)
-  for (const tag of targets.tags) revalidateTag(tag)
+  const paths = ["/", "/ar", "/projects", "/ar/projects", "/sitemap.xml"]
+  for (const slug of slugs) paths.push(`/projects/${slug}`, `/ar/projects/${slug}`)
+  for (const path of paths) revalidatePath(path)
 
-  return NextResponse.json({ revalidated: true, ...targets })
+  return NextResponse.json({ revalidated: true, paths })
 }

@@ -1,32 +1,7 @@
-import type { Metadata } from "next"
-import { getListingPages, getPublishedServices } from "@/cms/queries"
-import { ServicesPageView } from "@/components/pages/ServicesPageView"
+import { ServicesRoute, servicesMetadata } from "@/site/routes"
 
-export const metadata: Metadata = {
-  title: "الخدمات — إينهيريتكس",
-  description:
-    "برمجيات مخصصة ومنصات SaaS وأنظمة ERP وتطبيقات جوال وأتمتة بالذكاء الاصطناعي وتطوير WordPress.",
-  alternates: {
-    canonical: "/ar/services",
-    languages: {
-      en: "/services",
-      ar: "/ar/services",
-      "x-default": "/services",
-    },
-  },
-}
+export const generateMetadata = () => servicesMetadata("ar")
 
-export default async function ArabicServicesPage() {
-  const [listingPages, services] = await Promise.all([
-    getListingPages("ar"),
-    getPublishedServices("ar"),
-  ])
-
-  return (
-    <ServicesPageView
-      lang="ar"
-      services={services as Array<Record<string, unknown>>}
-      listingHeader={listingPages?.services as { kicker?: string; title?: string; intro?: string } | undefined}
-    />
-  )
+export default function Page() {
+  return <ServicesRoute locale="ar" />
 }

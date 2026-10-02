@@ -50,21 +50,29 @@ CREATE DATABASE inheritix;
 ```
 
 ### 4. Database Migrations
-Run versioned migrations:
+Schema changes ship **only** through versioned migrations in `src/migrations/` (automatic dev schema push is disabled in `src/payload.config.ts`).
 ```bash
-npm run migrate
+npm run migrate          # apply pending migrations
+npm run migrate:status   # list applied / pending migrations
+npm run migrate:create <name>   # after changing collections/globals: generate a migration from the config
+npm run migrate:check    # drift check: creates a "drift_check" migration only if config and migrations differ
 ```
-Migrations are located in `src/migrations/`.
+All Payload CLI commands run through `scripts/payload.mjs`, which guards against an observed intermittent startup stall of the stock Payload 3.90.2 CLI on this Node 22/Windows setup (the stock bin sometimes exited 0 without doing anything; root cause unconfirmed). Do not call `npx payload migrate` directly in CI.
 
-### 5. Content Seed & First Admin Creation
-Run the idempotent seed script to populate default users, globals, services, products, and articles:
+### 5. Accounts and Content Seed
+Create or rotate CMS accounts — credentials come from the environment (`INHERITIX_ADMIN_*`, `INHERITIX_EDITOR_*`) or an interactive hidden prompt. There are no default passwords and nothing secret is printed:
+```bash
+npm run bootstrap:users
+```
+The command also audits every account for the published default passwords from the original baseline and locks any match (exit code 2) until a new password is supplied.
+
+Populate approved content (idempotent; never creates users):
 ```bash
 npm run seed
 ```
-
-Default credentials created:
-- **Administrator**: `admin@inheritixai.com` (Role: `admin`)
-- **Editor**: `editor@inheritixai.com` (Role: `editor`)
+- Records are created only when their slug is missing; globals are initialised only if never saved. Re-running never overwrites editorial changes.
+- Services, products and the first article are published. Incomplete articles and the two sample projects are drafts (`noIndex`).
+- Any error aborts with a non-zero exit code.
 
 ### 6. Development Server
 Start the Next.js development server:
@@ -92,9 +100,9 @@ npm run dev
 10. **Redirects** (`redirects`): Permanent 308 redirects with loop prevention.
 
 ### Globals
-- **SiteSettings** (`site-settings`): Site name, brand colors, default SEO, social links, footer invitation.
+- **SiteSettings** (`site-settings`): Site name, logos and favicon, validated brand colors (mapped to the `--blue`, `--cyan`, `--navy` design tokens), default SEO, social links, footer invitation.
 - **Navigation** (`navigation`): Header navigation links and call-to-action button.
-- **HomePage** (`page-home`): Hero copy, showcase visibility, section headers, 4-phase approach, perspective quote.
+- **HomePage** (`page-home`): Hero copy and CTAs, section order, per-section visibility, product/story card selections, approach phases, perspective image, SEO.
 - **AboutPage** (`page-about`): Manifesto, core principles, architectural visual.
 - **ContactPage** (`page-contact`): Direct contact email, note, and Milestone 3 boundary notice.
 - **ListingPages** (`listing-pages`): Headers for Services, Products, Projects, and Insights listings.
@@ -115,5 +123,18 @@ npm run start
 
 ### Milestone Boundaries
 - **Milestone One (Completed)**: Visual design baseline, route scaffolding, development fixtures.
-- **Milestone Two (Completed)**: Payload CMS 3.x, PostgreSQL adapter, admin dashboard, content modeling, refactored server-rendered App Router pages, client interactions, drafts, and redirects.
+- **Milestone Two (Completed, verified against PostgreSQL)**: Payload CMS 3.x, PostgreSQL migrations, secure account bootstrap, admin dashboard, content modeling, CMS-driven pages and branding, authorized drafts/preview, slug redirects, SEO and sitemap. Verification report and field-to-render checklist: `docs/milestone-two-verification.md`.
 - **Milestone Three (Upcoming)**: Contact submission database persistence, automated email delivery pipeline (Resend integration), and analytics dashboard.
+
+---
+
+## Engineering Rules (Milestone Two)
+
+- **Public data access** goes through `src/cms/queries.ts`: every Local API call uses `overrideAccess: false`. Drafts are served only when Next draft mode is on *and* the request carries a valid admin/editor session (rechecked per render).
+- **Failures are not content**: database/query errors throw `ContentInfrastructureError` (logged, HTTP 500). Never return placeholder content on error. Sample project fixtures appear only with `INHERITIX_DEV_FIXTURES=true` outside production.
+- **Cache invalidation** is handled by collection/global hooks in `src/payload/hooks/revalidate.ts`; slug changes of *published* records create flattened 308 redirects (`src/payload/hooks/slugRedirects.ts`).
+- **Rich text** renders through `src/components/ui/RichTextContent.tsx` (Payload's Lexical renderer). After adding fields with custom admin components run `npm run generate:importmap` and `npm run generate:types`.
+- **No hardcoded visitor copy**: every visible string comes from a collection, a page global, or **Site Labels** (headings, buttons, aria labels, article CTA, 404/500 copy). Components render CMS values only and hide an element whose value is empty — never fall back to text in code. Starter copy lives in `src/content/starter-copy.ts` (field defaults, seed, and the `content_controls` migration). Exceptions: the dashboard/phone mockup illustrations (design components), the development-fixture notice, and a minimal 500 message used only when the CMS itself is unreachable.
+- **Redirect status codes**: only 308 and 307 are offered, because public routes redirect from React Server Components (`permanentRedirect`/`redirect`).
+- **Deploy order**: apply migrations and switch to the matching build together. An older build writing to a newer schema can reset newly added localized columns to their English column defaults (observed during verification).
+- **Verification**: `npm run test:content-controls` checks CMS-driven copy, intentional-empty hiding and redirect statuses (restores everything it changes). `npm run test:integration` (requires a running server and `INHERITIX_*` credentials) exercises auth, uploads, drafts/preview, publishing, redirects, articles, branding and the homepage over HTTP.

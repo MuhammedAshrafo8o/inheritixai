@@ -1,14 +1,19 @@
 import type { CollectionConfig } from "payload"
 import { canDeleteContent, canManageContent, publicOrAuthenticatedRead } from "../../cms/access"
+import { slugField } from "../fields/slug"
+import { SERVICE_SECTION_COPY } from "../../content/starter-copy"
+import { seoField } from "../fields/seo"
+import { revalidateRoutableAfterChange, revalidateRoutableAfterDelete } from "../hooks/revalidate"
+import { createPublishedSlugRedirects, detectPublishedSlugChange } from "../hooks/slugRedirects"
 
 export const Services: CollectionConfig = {
   slug: "services",
   admin: {
     useAsTitle: "title",
     defaultColumns: ["number", "slug", "title", "_status", "updatedAt"],
-    preview: (doc) => {
+    preview: (doc, { locale }) => {
       if (!doc?.slug) return null
-      return `/api/preview?collection=services&slug=${doc.slug}`
+      return `/api/preview?collection=services&slug=${encodeURIComponent(String(doc.slug))}&lang=${locale === "ar" ? "ar" : "en"}`
     },
   },
   versions: {
@@ -20,6 +25,11 @@ export const Services: CollectionConfig = {
     update: canManageContent,
     delete: canDeleteContent,
   },
+  hooks: {
+    beforeChange: [detectPublishedSlugChange("services")],
+    afterChange: [createPublishedSlugRedirects("services"), revalidateRoutableAfterChange("services")],
+    afterDelete: [revalidateRoutableAfterDelete("services")],
+  },
   fields: [
     {
       name: "number",
@@ -27,13 +37,7 @@ export const Services: CollectionConfig = {
       required: true,
       defaultValue: "01",
     },
-    {
-      name: "slug",
-      type: "text",
-      required: true,
-      unique: true,
-      index: true,
-    },
+    slugField(),
     {
       name: "title",
       type: "text",
@@ -61,11 +65,13 @@ export const Services: CollectionConfig = {
       name: "problemHeading",
       type: "text",
       localized: true,
+      defaultValue: SERVICE_SECTION_COPY.problemHeading.en,
     },
     {
       name: "problemDescription",
       type: "textarea",
       localized: true,
+      defaultValue: SERVICE_SECTION_COPY.problemDescription.en,
     },
     {
       name: "deliverablesEyebrow",
@@ -77,6 +83,7 @@ export const Services: CollectionConfig = {
       name: "deliverablesHeading",
       type: "text",
       localized: true,
+      defaultValue: SERVICE_SECTION_COPY.deliverablesHeading.en,
     },
     {
       name: "deliverables",
@@ -100,11 +107,13 @@ export const Services: CollectionConfig = {
       name: "processHeading",
       type: "text",
       localized: true,
+      defaultValue: SERVICE_SECTION_COPY.processHeading.en,
     },
     {
       name: "processDescription",
       type: "textarea",
       localized: true,
+      defaultValue: SERVICE_SECTION_COPY.processDescription.en,
     },
     {
       name: "nextEyebrow",
@@ -116,32 +125,13 @@ export const Services: CollectionConfig = {
       name: "nextHeading",
       type: "text",
       localized: true,
+      defaultValue: SERVICE_SECTION_COPY.nextHeading.en,
     },
     {
       name: "displayOrder",
       type: "number",
       defaultValue: 0,
     },
-    {
-      name: "seo",
-      type: "group",
-      fields: [
-        {
-          name: "title",
-          type: "text",
-          localized: true,
-        },
-        {
-          name: "description",
-          type: "textarea",
-          localized: true,
-        },
-        {
-          name: "ogImage",
-          type: "upload",
-          relationTo: "media",
-        },
-      ],
-    },
+    seoField(),
   ],
 }

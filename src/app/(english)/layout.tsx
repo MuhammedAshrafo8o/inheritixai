@@ -1,15 +1,10 @@
 import React from "react"
-import { siteMetadata } from "@/content/site-metadata"
-import { AppShell } from "@/components/layout/AppShell"
+import { AppShell, layoutMetadata } from "@/components/layout/AppShell"
 import "../globals.css"
 
-export const metadata = siteMetadata
+export const generateMetadata = () => layoutMetadata("en")
 
-export default function EnglishWebsiteLayout({
-  children,
-}: {
-  children: React.ReactNode
-}) {
+export default function EnglishWebsiteLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" dir="ltr">
       <body>

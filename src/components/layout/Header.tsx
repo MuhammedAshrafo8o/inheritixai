@@ -10,6 +10,14 @@ interface HeaderProps {
   navItems: Array<{ label: string; href: string }>
   headerCta: { label: string; href: string }
   siteName?: string
+  logo?: { url: string; alt: string }
+  labels: {
+    changeLanguage?: string | null
+    languageToggle?: string | null
+    mainNavigation?: string | null
+    openMenu?: string | null
+    closeMenu?: string | null
+  }
 }
 
 function stripLocale(path: string) {
@@ -29,6 +37,8 @@ export function Header({
   navItems,
   headerCta,
   siteName = "INHERITIX",
+  logo,
+  labels,
 }: HeaderProps) {
   const [open, setOpen] = useState(false)
   const pathname = usePathname()
@@ -64,26 +74,32 @@ export function Header({
         className="brand"
         onClick={() => setOpen(false)}
       >
-        <Mark />
-        <strong>{siteName}</strong>
+        {logo ? (
+          <img className="brand-logo" src={logo.url} alt={logo.alt} />
+        ) : (
+          <>
+            <Mark />
+            <strong>{siteName}</strong>
+          </>
+        )}
       </Link>
 
       {open && (
         <button
           type="button"
           className="menu-backdrop"
-          aria-label="Close navigation"
+          aria-label={labels.closeMenu || undefined}
           onClick={() => setOpen(false)}
         />
       )}
 
-      <nav className={open ? "nav open" : "nav"} aria-label="Main navigation">
+      <nav className={open ? "nav open" : "nav"} aria-label={labels.mainNavigation || undefined}>
         {navItems.map((item) => {
           const itemPath = stripLocale(item.href)
           const isActive = cleanPath === itemPath || (itemPath !== "/" && cleanPath.startsWith(`${itemPath}/`))
           return (
             <Link
-              key={item.href}
+              key={`${item.href}-${item.label}`}
               href={localizedPath(item.href, lang)}
               onClick={() => setOpen(false)}
               aria-current={isActive ? "page" : undefined}
@@ -96,28 +112,32 @@ export function Header({
       </nav>
 
       <div className="header-actions">
-        <button
-          type="button"
-          className="lang"
-          aria-label={lang === "en" ? "Switch to Arabic" : "التغيير إلى الإنجليزية"}
-          onClick={toggleLanguage}
-        >
-          {lang === "en" ? "العربية" : "EN"}
-        </button>
+        {labels.languageToggle && (
+          <button
+            type="button"
+            className="lang"
+            aria-label={labels.changeLanguage || undefined}
+            onClick={toggleLanguage}
+          >
+            {labels.languageToggle}
+          </button>
+        )}
 
-        <Link
-          href={localizedPath(headerCta.href, lang)}
-          className="header-cta"
-          onClick={() => setOpen(false)}
-        >
-          {headerCta.label}
-          <Arrow />
-        </Link>
+        {headerCta.label && (
+          <Link
+            href={localizedPath(headerCta.href, lang)}
+            className="header-cta"
+            onClick={() => setOpen(false)}
+          >
+            {headerCta.label}
+            <Arrow />
+          </Link>
+        )}
 
         <button
           type="button"
           className="menu"
-          aria-label="Toggle navigation"
+          aria-label={(open ? labels.closeMenu : labels.openMenu) || undefined}
           aria-expanded={open}
           onClick={() => setOpen(!open)}
         >

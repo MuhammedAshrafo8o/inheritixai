@@ -1,11 +1,17 @@
 import type { GlobalConfig } from "payload"
 import { canManageContent } from "../../cms/access"
+import { seoField } from "../fields/seo"
+import { CONTACT_FORM_COPY } from "../../content/starter-copy"
+import { revalidateGlobalAfterChange } from "../hooks/revalidate"
 
 export const ContactPage: GlobalConfig = {
   slug: "page-contact",
   access: {
     read: () => true,
     update: canManageContent,
+  },
+  hooks: {
+    afterChange: [revalidateGlobalAfterChange],
   },
   fields: [
     {
@@ -50,5 +56,20 @@ export const ContactPage: GlobalConfig = {
         description: "Truthful boundary notice regarding form submissions in Milestone Two.",
       },
     },
+    {
+      name: "form",
+      type: "group",
+      admin: {
+        description:
+          "Contact form copy. Product and service choices come from published Products and Services. Submission handling arrives in Milestone Three.",
+      },
+      fields: (Object.keys(CONTACT_FORM_COPY) as Array<keyof typeof CONTACT_FORM_COPY>).map((name) => ({
+        name,
+        type: "text" as const,
+        localized: true,
+        defaultValue: CONTACT_FORM_COPY[name].en,
+      })),
+    },
+    seoField(),
   ],
 }

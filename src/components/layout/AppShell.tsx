@@ -1,10 +1,47 @@
 import React, { ReactNode } from "react"
+import type { Metadata } from "next"
 import { Header } from "./Header"
 import { Footer } from "./Footer"
 import { BackToTop } from "../ui/BackToTop"
 import { ScrollObserver } from "../ui/ScrollObserver"
-import { getNavigation, getSiteSettings } from "@/cms/queries"
+import { getNavigation, getSiteLabels, getSiteSettings } from "@/cms/queries"
 import type { Locale } from "@/content/types"
+import { getSiteUrl } from "@/env"
+import { mediaOf } from "@/site/metadata"
+import type { SiteSetting } from "@/payload-types"
+
+const HEX = /^#[0-9A-Fa-f]{6}$/
+
+/** CMS brand colors → the existing design tokens. Values are re-validated before reaching CSS. */
+export function brandTokenCss(colors: SiteSetting["brandColors"]) {
+  const tokens: Array<[string, string | null | undefined]> = [
+    ["--blue", colors?.primary],
+    ["--cyan", colors?.accent],
+    ["--navy", colors?.dark],
+  ]
+  const declarations = tokens
+    .filter(([, value]) => typeof value === "string" && HEX.test(value))
+    .map(([name, value]) => `${name}:${value}`)
+  return declarations.length ? `:root{${declarations.join(";")}}` : ""
+}
+
+export async function layoutMetadata(locale: Locale): Promise<Metadata> {
+  const settings = await getSiteSettings(locale)
+  const favicon = mediaOf(settings.branding?.favicon)
+  const siteName = settings.siteName
+  return {
+    metadataBase: new URL(getSiteUrl()),
+    applicationName: siteName,
+    title: {
+      default: settings.defaultSeo?.title || siteName,
+      template: `%s — ${siteName}`,
+    },
+    description: settings.defaultSeo?.description || undefined,
+    icons: favicon?.url
+      ? { icon: [{ url: favicon.url, type: favicon.mimeType || undefined }], apple: [{ url: favicon.url }] }
+      : { icon: [{ url: "/favicon.svg", type: "image/svg+xml" }] },
+  }
+}
 
 interface AppShellProps {
   children: ReactNode
@@ -12,48 +49,45 @@ interface AppShellProps {
 }
 
 export async function AppShell({ children, lang }: AppShellProps) {
-  const [navigation, siteSettings] = await Promise.all([
+  const [navigation, settings, labels] = await Promise.all([
     getNavigation(lang),
     getSiteSettings(lang),
+    getSiteLabels(lang),
   ])
 
-  const navItems = (navigation?.items || []).map((item: Record<string, unknown>) => ({
-    label:
-      typeof item.label === "string"
-        ? item.label
-        : (item.label as Record<string, string>)?.[lang] || "",
-    href: (item.href as string) || "/",
-  }))
-
-  const resolveLocalized = (val: unknown): string | undefined => {
-    if (!val) return undefined
-    if (typeof val === "string") return val
-    if (typeof val === "object") {
-      const rec = val as Record<string, string>
-      return rec[lang] || rec.en || rec.ar || undefined
-    }
-    return String(val)
-  }
-
+  const navItems = (navigation.items ?? []).map((item) => ({ label: item.label, href: item.href }))
   const headerCta = {
-    label:
-      resolveLocalized(navigation?.headerCta?.label) ||
-      (lang === "ar" ? "ابدأ مشروعك" : "Start a Project"),
-    href: navigation?.headerCta?.href || "/contact",
+    label: navigation.headerCta?.label || "",
+    href: navigation.headerCta?.href || "/contact",
   }
+  const siteName = settings.siteName
+  const logo = mediaOf(settings.branding?.logo)
+  const logoLight = mediaOf(settings.branding?.logoLight) ?? logo
+  const tokenCss = brandTokenCss(settings.brandColors)
 
   return (
     <div className="app-shell">
+      {tokenCss && <style data-brand-tokens>{tokenCss}</style>}
       <ScrollObserver />
-      <a className="skip-link" href="#main-content">
-        {lang === "ar" ? "انتقل إلى المحتوى" : "Skip to content"}
-      </a>
+      {labels.skipToContent && (
+        <a className="skip-link" href="#main-content">
+          {labels.skipToContent}
+        </a>
+      )}
 
       <Header
         lang={lang}
         navItems={navItems}
         headerCta={headerCta}
-        siteName={siteSettings?.siteName || "INHERITIX"}
+        siteName={siteName}
+        logo={logo?.url ? { url: logo.url, alt: logo.alt || siteName } : undefined}
+        labels={{
+          changeLanguage: labels.changeLanguage,
+          languageToggle: labels.languageToggle,
+          mainNavigation: labels.mainNavigation,
+          openMenu: labels.openMenu,
+          closeMenu: labels.closeMenu,
+        }}
       />
 
       <div id="main-content" tabIndex={-1}>
@@ -63,15 +97,17 @@ export async function AppShell({ children, lang }: AppShellProps) {
       <Footer
         lang={lang}
         navItems={navItems}
-        footerHeading={resolveLocalized(siteSettings?.footerHeading)}
-        footerInvitation={resolveLocalized(siteSettings?.footerInvitation)}
-        footerCtaLabel={resolveLocalized(siteSettings?.footerCtaLabel)}
-        copyright={siteSettings?.copyright || undefined}
-        location={siteSettings?.location || undefined}
-        siteName={siteSettings?.siteName || undefined}
+        footerHeading={settings.footerHeading || undefined}
+        footerInvitation={settings.footerInvitation || undefined}
+        footerCtaLabel={settings.footerCtaLabel || undefined}
+        copyright={settings.copyright || undefined}
+        location={settings.location || undefined}
+        siteName={siteName}
+        logo={logoLight?.url ? { url: logoLight.url, alt: logoLight.alt || siteName } : undefined}
+        socialLinks={(settings.socialLinks ?? []).map((link) => ({ platform: link.platform, url: link.url }))}
       />
 
-      <BackToTop lang={lang} />
+      <BackToTop label={labels.backToTop || ""} />
     </div>
   )
 }

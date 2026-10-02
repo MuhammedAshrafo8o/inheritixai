@@ -1,134 +1,68 @@
 import type { MetadataRoute } from "next"
 import {
-  getPublishedPosts,
-  getPublishedProducts,
-  getPublishedProjects,
-  getPublishedServices,
+  getAboutPage,
+  getContactPage,
+  getHomePage,
+  getListingPages,
+  getSitemapRecords,
 } from "@/cms/queries"
+import type { Locale } from "@/content/types"
+import { getSiteUrl } from "@/env"
+import { localizedHref } from "@/site/metadata"
 
-const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://inheritixai.com"
+// Always generated from the database at request time so publish/unpublish and
+// noIndex changes are reflected immediately (on-demand revalidation does not
+// reliably purge the static sitemap metadata route).
+export const dynamic = "force-dynamic"
+
+const ROUTE_PREFIX = {
+  services: "/services",
+  products: "/products",
+  projects: "/projects",
+  posts: "/insights",
+} as const
+
+function entry(path: string, locales: Locale[], lastModified?: string, priority = 0.7): MetadataRoute.Sitemap {
+  const base = getSiteUrl()
+  const languages: Record<string, string> = {}
+  if (locales.length > 1) {
+    for (const l of locales) languages[l] = `${base}${localizedHref(path, l)}`
+    if (locales.includes("en")) languages["x-default"] = `${base}${localizedHref(path, "en")}`
+  }
+  return locales.map((locale) => ({
+    url: `${base}${localizedHref(path, locale)}`,
+    lastModified: lastModified ? new Date(lastModified) : undefined,
+    priority,
+    alternates: locales.length > 1 ? { languages } : undefined,
+  }))
+}
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const [services, products, projectsResult, posts] = await Promise.all([
-    getPublishedServices("en"),
-    getPublishedProducts("en"),
-    getPublishedProjects("en", { limit: 100 }),
-    getPublishedPosts("en", 100),
+  const [records, home, about, contact, listings] = await Promise.all([
+    getSitemapRecords(),
+    getHomePage("en"),
+    getAboutPage("en"),
+    getContactPage("en"),
+    getListingPages("en"),
   ])
 
-  const staticRoutes = [
-    "",
-    "/services",
-    "/products",
-    "/projects",
-    "/about",
-    "/insights",
-    "/contact",
-  ]
-
+  const both: Locale[] = ["en", "ar"]
   const entries: MetadataRoute.Sitemap = []
-
-  // Static routes
-  for (const route of staticRoutes) {
-    entries.push({
-      url: `${BASE_URL}${route}`,
-      lastModified: new Date(),
-      changeFrequency: route === "" ? "daily" : "weekly",
-      priority: route === "" ? 1.0 : 0.8,
-      alternates: {
-        languages: {
-          en: `${BASE_URL}${route}`,
-          ar: `${BASE_URL}/ar${route}`,
-          "x-default": `${BASE_URL}${route}`,
-        },
-      },
-    })
-    entries.push({
-      url: `${BASE_URL}/ar${route}`,
-      lastModified: new Date(),
-      changeFrequency: route === "" ? "daily" : "weekly",
-      priority: route === "" ? 1.0 : 0.8,
-      alternates: {
-        languages: {
-          en: `${BASE_URL}${route}`,
-          ar: `${BASE_URL}/ar${route}`,
-          "x-default": `${BASE_URL}${route}`,
-        },
-      },
-    })
+  const staticPages: Array<[string, { seo?: { noIndex?: boolean | null } | null } | null | undefined, number]> = [
+    ["/", home, 1],
+    ["/services", listings.services, 0.8],
+    ["/products", listings.products, 0.8],
+    ["/projects", listings.projects, 0.8],
+    ["/insights", listings.insights, 0.8],
+    ["/about", about, 0.6],
+    ["/contact", contact, 0.6],
+  ]
+  for (const [path, doc, priority] of staticPages) {
+    if (!doc?.seo?.noIndex) entries.push(...entry(path, both, undefined, priority))
   }
 
-  // Published Services
-  for (const service of services) {
-    const slug = (service as { slug: string }).slug
-    entries.push({
-      url: `${BASE_URL}/services/${slug}`,
-      lastModified: new Date(),
-      changeFrequency: "monthly",
-      priority: 0.7,
-      alternates: {
-        languages: {
-          en: `${BASE_URL}/services/${slug}`,
-          ar: `${BASE_URL}/ar/services/${slug}`,
-          "x-default": `${BASE_URL}/services/${slug}`,
-        },
-      },
-    })
+  for (const record of records) {
+    entries.push(...entry(`${ROUTE_PREFIX[record.collection]}/${record.slug}`, record.locales, record.updatedAt))
   }
-
-  // Published Products
-  for (const product of products) {
-    const slug = (product as { slug: string }).slug
-    entries.push({
-      url: `${BASE_URL}/products/${slug}`,
-      lastModified: new Date(),
-      changeFrequency: "monthly",
-      priority: 0.7,
-      alternates: {
-        languages: {
-          en: `${BASE_URL}/products/${slug}`,
-          ar: `${BASE_URL}/ar/products/${slug}`,
-          "x-default": `${BASE_URL}/products/${slug}`,
-        },
-      },
-    })
-  }
-
-  // Published Projects
-  for (const project of projectsResult.docs) {
-    const slug = (project as { slug: string }).slug
-    entries.push({
-      url: `${BASE_URL}/projects/${slug}`,
-      lastModified: new Date(),
-      changeFrequency: "monthly",
-      priority: 0.7,
-      alternates: {
-        languages: {
-          en: `${BASE_URL}/projects/${slug}`,
-          ar: `${BASE_URL}/ar/projects/${slug}`,
-          "x-default": `${BASE_URL}/projects/${slug}`,
-        },
-      },
-    })
-  }
-
-  // Published Posts
-  for (const post of posts) {
-    const slug = (post as { slug: string }).slug
-    entries.push({
-      url: `${BASE_URL}/insights/${slug}`,
-      lastModified: new Date(),
-      changeFrequency: "monthly",
-      priority: 0.6,
-      alternates: {
-        languages: {
-          en: `${BASE_URL}/insights/${slug}`,
-          ar: `${BASE_URL}/ar/insights/${slug}`,
-          "x-default": `${BASE_URL}/insights/${slug}`,
-        },
-      },
-    })
-  }
-
   return entries
 }

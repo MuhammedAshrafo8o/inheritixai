@@ -1,11 +1,16 @@
 import type { GlobalConfig } from "payload"
 import { canManageContent } from "../../cms/access"
+import { seoField } from "../fields/seo"
+import { revalidateGlobalAfterChange } from "../hooks/revalidate"
 
 export const AboutPage: GlobalConfig = {
   slug: "page-about",
   access: {
     read: () => true,
     update: canManageContent,
+  },
+  hooks: {
+    afterChange: [revalidateGlobalAfterChange],
   },
   fields: [
     {
@@ -27,6 +32,19 @@ export const AboutPage: GlobalConfig = {
       defaultValue:
         "INHERITIX Technologies designs and builds digital products, operational systems, and platforms for businesses ready to work better.",
       required: true,
+    },
+    {
+      name: "image",
+      type: "upload",
+      relationTo: "media",
+      admin: { description: "Uploaded hero image (preferred). Its localized alt text is used." },
+    },
+    {
+      name: "imageAlt",
+      type: "text",
+      localized: true,
+      defaultValue: "Blue geometric architecture against open sky",
+      admin: { description: "Alt text for the fallback external image." },
     },
     {
       name: "imageUrl",
@@ -83,5 +101,6 @@ export const AboutPage: GlobalConfig = {
         },
       ],
     },
+    seoField(),
   ],
 }

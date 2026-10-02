@@ -1,0 +1,41 @@
+
+> inheritix-website@1.0.0 seed
+> node scripts/payload.mjs run scripts/seed.ts
+
+🌱 Seeding Inheritix content into 127.0.0.1:5433/inheritix_m2 (NODE_ENV=development)
+→ Checking administrators
+→ Services
+→ Products
+→ Categories & author
+→ Articles
+→ Sample projects (drafts)
+→ Globals
+
+Created (0):
+Kept existing, untouched (24):
+  = service:custom-software
+  = service:saas-platforms
+  = service:erp-and-business-systems
+  = service:mobile-applications
+  = service:ai-automation
+  = service:wordpress-development
+  = product:logisttex
+  = product:fen-el-menu
+  = category:product-thinking
+  = category:ai-and-automation
+  = category:design
+  = author:INHERITIX Editorial
+  = post:software-people-adopt
+  = post:automation-with-judgment
+  = post:designing-operational-clarity
+  = project:operations-platform
+  = project:service-platform
+  = global:site-settings
+  = global:navigation
+  = global:page-home
+  = global:page-about
+  = global:page-contact
+  = global:listing-pages
+  = global:site-labels
+
+✅ Seed finished without errors.

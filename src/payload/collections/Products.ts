@@ -1,14 +1,18 @@
 import type { CollectionConfig } from "payload"
 import { canDeleteContent, canManageContent, publicOrAuthenticatedRead } from "../../cms/access"
+import { slugField } from "../fields/slug"
+import { seoField } from "../fields/seo"
+import { revalidateRoutableAfterChange, revalidateRoutableAfterDelete } from "../hooks/revalidate"
+import { createPublishedSlugRedirects, detectPublishedSlugChange } from "../hooks/slugRedirects"
 
 export const Products: CollectionConfig = {
   slug: "products",
   admin: {
     useAsTitle: "name",
     defaultColumns: ["name", "slug", "badge", "_status", "updatedAt"],
-    preview: (doc) => {
+    preview: (doc, { locale }) => {
       if (!doc?.slug) return null
-      return `/api/preview?collection=products&slug=${doc.slug}`
+      return `/api/preview?collection=products&slug=${encodeURIComponent(String(doc.slug))}&lang=${locale === "ar" ? "ar" : "en"}`
     },
   },
   versions: {
@@ -20,14 +24,13 @@ export const Products: CollectionConfig = {
     update: canManageContent,
     delete: canDeleteContent,
   },
+  hooks: {
+    beforeChange: [detectPublishedSlugChange("products")],
+    afterChange: [createPublishedSlugRedirects("products"), revalidateRoutableAfterChange("products")],
+    afterDelete: [revalidateRoutableAfterDelete("products")],
+  },
   fields: [
-    {
-      name: "slug",
-      type: "text",
-      required: true,
-      unique: true,
-      index: true,
-    },
+    slugField(),
     {
       name: "name",
       type: "text",
@@ -70,6 +73,14 @@ export const Products: CollectionConfig = {
       type: "textarea",
       localized: true,
       required: true,
+    },
+    {
+      name: "homeDescription",
+      type: "textarea",
+      localized: true,
+      admin: {
+        description: "Copy for the homepage 'Our products' section. Falls back to the summary.",
+      },
     },
     {
       name: "visualType",
@@ -116,6 +127,12 @@ export const Products: CollectionConfig = {
       ],
     },
     {
+      name: "workflowTitle",
+      type: "text",
+      localized: true,
+      admin: { description: "Heading of the core workflow section. Leave empty to hide the heading." },
+    },
+    {
       name: "tourTitle",
       type: "text",
       localized: true,
@@ -148,26 +165,6 @@ export const Products: CollectionConfig = {
       type: "number",
       defaultValue: 0,
     },
-    {
-      name: "seo",
-      type: "group",
-      fields: [
-        {
-          name: "title",
-          type: "text",
-          localized: true,
-        },
-        {
-          name: "description",
-          type: "textarea",
-          localized: true,
-        },
-        {
-          name: "ogImage",
-          type: "upload",
-          relationTo: "media",
-        },
-      ],
-    },
+    seoField(),
   ],
 }

@@ -4,62 +4,50 @@ import { PageHero } from "../ui/PageHero"
 import { Dashboard } from "../mockups/Dashboard"
 import { MenuPhone } from "../mockups/MenuPhone"
 import type { Locale } from "@/content/types"
+import type { Product, SiteLabel } from "@/payload-types"
 
 interface ProductsPageViewProps {
   lang: Locale
-  products: Array<Record<string, unknown>>
-  listingHeader?: {
-    kicker?: string
-    title?: string
-    intro?: string
-  }
+  products: Product[]
+  listingHeader?: { kicker?: string | null; title?: string | null; intro?: string | null } | null
+  labels: SiteLabel
 }
 
 export function ProductsPageView({
   lang,
   products,
   listingHeader,
+  labels,
 }: ProductsPageViewProps) {
   const isAr = lang === "ar"
   const prefix = isAr ? "/ar" : ""
 
-  const kicker = listingHeader?.kicker || "INHERITIX PRODUCTS"
-  const title =
-    listingHeader?.title ||
-    (isAr ? "منتجات صنعتها خبرة حقيقية." : "Products shaped by real operations.")
-  const intro =
-    listingHeader?.intro ||
-    (isAr
-      ? "نبني ونمتلك منتجات برمجية متخصصة للقطاعات التي تهتم بالوضوح والسرعة وسير العمل الموثوق."
-      : "We build and own focused software products for industries where clarity, speed, and a dependable workflow matter.")
-
   return (
     <main>
-      <PageHero kicker={kicker} title={title} intro={intro} />
+      <PageHero kicker={listingHeader?.kicker} title={listingHeader?.title} intro={listingHeader?.intro} />
 
       <section className="products-index page-pad">
         {products.map((product, index) => {
-          const slug = product.slug as string
-          const name = product.name as string
-          const badge = (product.badge as string) || (index === 0 ? "01 / LOGISTICS OPERATIONS" : "02 / RESTAURANT EXPERIENCE")
-          const summary = product.summary as string
+          const slug = product.slug
+          const name = product.name
+          const badge = product.badge
+          const summary = product.summary
+          const isPhone = product.visualType === "phone"
           const isReverse = index % 2 !== 0
 
           return (
             <article
               className={`product-index-item ${isReverse ? "reverse" : ""} reveal`}
-              key={slug}
+              key={product.id}
             >
               <div>
-                <span className="eyebrow">{badge}</span>
+                {badge && <span className="eyebrow">{badge}</span>}
                 <h2>{name}</h2>
-                <p>{summary}</p>
-                <Action to={`${prefix}/products/${slug}`}>
-                  {isAr ? `استكشف ${name}` : `Explore ${name}`}
-                </Action>
+                {summary && <p>{summary}</p>}
+                <Action to={`${prefix}/products/${slug}`}>{`${labels.explore ?? ""} ${name}`.trim()}</Action>
               </div>
-              <div className={`index-visual ${index === 0 ? "blue" : "coral"}`}>
-                {index === 0 ? <Dashboard /> : <MenuPhone />}
+              <div className={`index-visual ${isPhone ? "coral" : "blue"}`}>
+                {isPhone ? <MenuPhone /> : <Dashboard />}
               </div>
             </article>
           )

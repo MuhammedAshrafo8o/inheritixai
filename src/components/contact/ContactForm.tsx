@@ -3,24 +3,48 @@
 import React, { FormEvent, useEffect, useState } from "react"
 import { Arrow } from "../ui/Icons"
 
+/** Contact form copy from the Contact Page global (`form` group). */
+export type ContactFormCopy = Partial<
+  Record<
+    | "directContactLabel"
+    | "projectTab"
+    | "demoTab"
+    | "generalTab"
+    | "projectHeading"
+    | "demoHeading"
+    | "generalHeading"
+    | "nameLabel"
+    | "namePlaceholder"
+    | "emailLabel"
+    | "emailPlaceholder"
+    | "productLabel"
+    | "serviceLabel"
+    | "messageLabel"
+    | "messagePlaceholder"
+    | "submitLabel"
+    | "statusLabel"
+    | "nameError"
+    | "emailError"
+    | "messageError",
+    string | null
+  >
+>
+
 interface ContactFormProps {
-  lang: "en" | "ar"
-  directEmail?: string
-  directNote?: string
-  boundaryNotice?: string
+  copy: ContactFormCopy
+  directEmail?: string | null
+  directNote?: string | null
+  boundaryNotice?: string | null
+  /** Published product names (demo requests). */
+  products: string[]
+  /** Published service titles (project inquiries). */
+  services: string[]
 }
 
-export function ContactForm({
-  lang,
-  directEmail = "hello@inheritix.com",
-  directNote = lang === "ar"
-    ? "للشراكات وفرص العمل والاستفسارات العامة، استخدم الاستفسار العام."
-    : "For partnerships, careers, and everything else, use general inquiry.",
-  boundaryNotice = lang === "ar"
-    ? "ملاحظة: معالجة النماذج الرقمية وإشعارات البريد الإلكتروني مجدولة للمرحلة الثالثة. يرجى التواصل مباشرة عبر hello@inheritix.com."
-    : "Milestone Two Notice: Automated form submission persistence and email dispatch are scheduled for Milestone Three. For immediate requests, please email our team directly at hello@inheritix.com.",
-}: ContactFormProps) {
-  const [type, setType] = useState<"project" | "demo" | "general">("project")
+type InquiryType = "project" | "demo" | "general"
+
+export function ContactForm({ copy, directEmail, directNote, boundaryNotice, products, services }: ContactFormProps) {
+  const [type, setType] = useState<InquiryType>("project")
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [submittedAttempt, setSubmittedAttempt] = useState(false)
 
@@ -29,6 +53,17 @@ export function ContactForm({
       setType("demo")
     }
   }, [])
+
+  const tabs = (
+    [
+      ["project", copy.projectTab],
+      ["demo", copy.demoTab],
+      ["general", copy.generalTab],
+    ] as Array<[InquiryType, string | null | undefined]>
+  ).filter(([, label]) => Boolean(label))
+
+  const heading = { project: copy.projectHeading, demo: copy.demoHeading, general: copy.generalHeading }[type]
+  const tabLabel = tabs.find(([value]) => value === type)?.[1]
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -39,20 +74,14 @@ export function ContactForm({
     const email = String(data.get("email") || "").trim()
     const message = String(data.get("message") || "").trim()
 
-    if (!name) {
-      nextErrors.name = lang === "ar" ? "يرجى كتابة الاسم." : "Please add your name."
-    }
-    if (!/^\S+@\S+\.\S+$/.test(email)) {
-      nextErrors.email = lang === "ar" ? "أدخل بريد عمل صحيح." : "Enter a valid work email."
-    }
-    if (!message) {
-      nextErrors.message = lang === "ar" ? "أخبرنا قليلاً عن احتياجاتك." : "Tell us a little about what you need."
-    }
+    if (!name) nextErrors.name = copy.nameError || " "
+    if (!/^\S+@\S+\.\S+$/.test(email)) nextErrors.email = copy.emailError || " "
+    if (!message) nextErrors.message = copy.messageError || " "
 
     setErrors(nextErrors)
 
     if (Object.keys(nextErrors).length === 0) {
-      // Form fields are valid, but truthful boundary is shown
+      // Fields are valid; submission handling arrives in Milestone Three.
       setSubmittedAttempt(true)
     } else {
       setSubmittedAttempt(false)
@@ -64,33 +93,27 @@ export function ContactForm({
 
   return (
     <section className="contact-layout page-pad">
-      <div className="contact-tabs">
-        {(
-          [
-            ["project", lang === "ar" ? "استفسار مشروع" : "Project inquiry"],
-            ["demo", lang === "ar" ? "طلب عرض للمنتج" : "Product demo"],
-            ["general", lang === "ar" ? "استفسار عام" : "General inquiry"],
-          ] as const
-        ).map(([value, label]) => (
-          <button
-            type="button"
-            className={type === value ? "active" : ""}
-            onClick={() => {
-              setType(value)
-              setSubmittedAttempt(false)
-            }}
-            key={value}
-          >
-            <span>
-              {value === "project" ? "01" : value === "demo" ? "02" : "03"}
-            </span>
-            {label}
-          </button>
-        ))}
-      </div>
+      {tabs.length > 0 && (
+        <div className="contact-tabs">
+          {tabs.map(([value, label], index) => (
+            <button
+              type="button"
+              className={type === value ? "active" : ""}
+              onClick={() => {
+                setType(value)
+                setSubmittedAttempt(false)
+              }}
+              key={value}
+            >
+              <span>{String(index + 1).padStart(2, "0")}</span>
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="contact-form-container">
-        {submittedAttempt && (
+        {submittedAttempt && boundaryNotice && (
           <div
             className="boundary-alert"
             role="status"
@@ -98,118 +121,91 @@ export function ContactForm({
               padding: "1.25rem 1.5rem",
               marginBottom: "2rem",
               borderRadius: "4px",
-              border: "1px solid var(--accent, #00CCFF)",
+              border: "1px solid var(--cyan)",
               backgroundColor: "rgba(0, 204, 255, 0.08)",
               color: "inherit",
               lineHeight: 1.6,
             }}
           >
-            <strong>{lang === "ar" ? "حالة الخدمة:" : "Submission Status:"}</strong>{" "}
-            {boundaryNotice}
+            {copy.statusLabel && <strong>{copy.statusLabel}</strong>} {boundaryNotice}
           </div>
         )}
 
         <form onSubmit={handleSubmit} noValidate>
-          <div className="form-intro">
-            <span className="eyebrow">{type.toUpperCase()}</span>
-            <h2>
-              {type === "project"
-                ? lang === "ar"
-                  ? "أخبرنا عن التحدي الخاص بك."
-                  : "Tell us about the challenge."
-                : type === "demo"
-                  ? lang === "ar"
-                    ? "شاهد المنتج في سير عملك."
-                    : "See the product in your workflow."
-                  : lang === "ar"
-                    ? "كيف يمكننا مساعدتك؟"
-                    : "How can we help?"}
-            </h2>
-          </div>
+          {(tabLabel || heading) && (
+            <div className="form-intro">
+              {tabLabel && <span className="eyebrow">{tabLabel.toUpperCase()}</span>}
+              {heading && <h2>{heading}</h2>}
+            </div>
+          )}
 
           <label>
-            {lang === "ar" ? "الاسم الكامل" : "Full name"}
-            <input
-              name="name"
-              placeholder={lang === "ar" ? "اسمك الكامل" : "Your name"}
-              aria-invalid={!!errors.name}
-            />
-            {errors.name && <small role="alert">{errors.name}</small>}
+            {copy.nameLabel}
+            <input name="name" placeholder={copy.namePlaceholder || undefined} aria-invalid={!!errors.name} />
+            {errors.name?.trim() && <small role="alert">{errors.name}</small>}
           </label>
 
           <label>
-            {lang === "ar" ? "بريد العمل الإلكتروني" : "Work email"}
+            {copy.emailLabel}
             <input
               name="email"
               type="email"
-              placeholder="you@company.com"
+              placeholder={copy.emailPlaceholder || undefined}
               aria-invalid={!!errors.email}
             />
-            {errors.email && <small role="alert">{errors.email}</small>}
+            {errors.email?.trim() && <small role="alert">{errors.email}</small>}
           </label>
 
-          {type === "demo" && (
+          {type === "demo" && products.length > 0 && (
             <label>
-              {lang === "ar" ? "المنتج" : "Product"}
+              {copy.productLabel}
               <select name="product">
-                <option value="LOGISTTEX">LOGISTTEX</option>
-                <option value="Fen El Menu">Fen El Menu</option>
+                {products.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
               </select>
             </label>
           )}
 
-          {type === "project" && (
+          {type === "project" && services.length > 0 && (
             <label>
-              {lang === "ar" ? "ما نوع المشروع الذي تفكر به؟" : "What are you considering?"}
+              {copy.serviceLabel}
               <select name="service">
-                <option value="Custom software">
-                  {lang === "ar" ? "برمجيات مخصصة" : "Custom software"}
-                </option>
-                <option value="SaaS platform">
-                  {lang === "ar" ? "منصة SaaS" : "SaaS platform"}
-                </option>
-                <option value="ERP / business system">
-                  {lang === "ar" ? "أنظمة ERP وإدارة الأعمال" : "ERP / business system"}
-                </option>
-                <option value="Mobile application">
-                  {lang === "ar" ? "تطبيقات الجوال" : "Mobile application"}
-                </option>
-                <option value="AI automation">
-                  {lang === "ar" ? "أتمتة الذكاء الاصطناعي" : "AI automation"}
-                </option>
-                <option value="WordPress development">
-                  {lang === "ar" ? "تطوير ووردبريس" : "WordPress development"}
-                </option>
+                {services.map((title) => (
+                  <option key={title} value={title}>
+                    {title}
+                  </option>
+                ))}
               </select>
             </label>
           )}
 
           <label>
-            {lang === "ar" ? "رسالتك" : "Your message"}
+            {copy.messageLabel}
             <textarea
               name="message"
               rows={5}
-              placeholder={
-                lang === "ar"
-                  ? "نبذة موجزة تساعدنا على الاستعداد..."
-                  : "A little context helps us prepare..."
-              }
+              placeholder={copy.messagePlaceholder || undefined}
               aria-invalid={!!errors.message}
             />
-            {errors.message && <small role="alert">{errors.message}</small>}
+            {errors.message?.trim() && <small role="alert">{errors.message}</small>}
           </label>
 
           <button className="submit" type="submit">
-            {lang === "ar" ? "إرسال الاستفسار" : "Send inquiry"} <Arrow />
+            {copy.submitLabel} <Arrow />
           </button>
         </form>
       </div>
 
-      <aside className="contact-note">
-        <span>{lang === "ar" ? "التواصل المباشر" : "DIRECT CONTACT"}</span>
-        <a href={`mailto:${directEmail}`}>{directEmail}</a>
-        <p>{directNote}</p>
-      </aside>
+      {(directEmail || directNote) && (
+        <aside className="contact-note">
+          {copy.directContactLabel && <span>{copy.directContactLabel}</span>}
+          {directEmail && <a href={`mailto:${directEmail}`}>{directEmail}</a>}
+          {directNote && <p>{directNote}</p>}
+        </aside>
+      )}
     </section>
   )
 }

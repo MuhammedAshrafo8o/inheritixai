@@ -2,122 +2,110 @@ import React from "react"
 import { Action } from "../ui/Action"
 import { PageHero } from "../ui/PageHero"
 import type { Locale } from "@/content/types"
+import type { Service, SiteLabel } from "@/payload-types"
 
 interface ServiceDetailPageViewProps {
   lang: Locale
-  service: Record<string, unknown>
+  service: Service
+  labels: SiteLabel
 }
 
-export function ServiceDetailPageView({
-  lang,
-  service,
-}: ServiceDetailPageViewProps) {
-  const isAr = lang === "ar"
-  const prefix = isAr ? "/ar" : ""
+type Section = {
+  id: string
+  nav?: string | null
+  eyebrow?: string | null
+  heading?: string | null
+  body?: React.ReactNode
+  hasContent: boolean
+}
 
-  const number = (service.number as string) || "01"
-  const title = (service.title as string) || ""
-  const intro =
-    (service.heroIntro as string) ||
-    (isAr
-      ? `نصمم ونهندس ${title} التي تقلل الاحتكاك وتخلق وضوحًا تشغيليًا وتُبنى لتتطور مع نمو أعمالك.`
-      : `We design and engineer ${title.toLowerCase()} that reduce friction, create visibility, and are built to evolve with your business.`)
+/**
+ * Every section comes from the service record. A section whose heading and
+ * content are empty is hidden, together with its "on this page" link.
+ */
+export function ServiceDetailPageView({ lang, service, labels }: ServiceDetailPageViewProps) {
+  const prefix = lang === "ar" ? "/ar" : ""
+  const deliverables = (service.deliverables ?? []).map((d) => d.item).filter(Boolean)
 
-  const problemEyebrow = (service.problemEyebrow as string) || (isAr ? "المشكلة" : "THE PROBLEM")
-  const problemHeading =
-    (service.problemHeading as string) ||
-    (isAr ? "التعقيد يجب أن يخدم العمل — لا أن يبطئه." : "Complexity should serve the business—not slow it down.")
-  const problemDesc =
-    (service.problemDescription as string) ||
-    (isAr
-      ? "الأدوات المنفصلة والإجراءات الموروثة تخلق عملاً مكررًا وقرارات غير موثوقة. نبدأ بفهم أين يكمن الاحتكاك الحقيقي: في سير العمل، أو البيانات، أو الواجهة بينهما."
-      : "Disconnected tools and inherited processes create duplicate work and unreliable decisions. We begin by understanding where the friction really lives: in the workflow, the data, or the interface between both.")
+  const sections: Section[] = [
+    {
+      id: "problem",
+      nav: labels.problemNav,
+      eyebrow: service.problemEyebrow,
+      heading: service.problemHeading,
+      body: service.problemDescription ? <p>{service.problemDescription}</p> : null,
+      hasContent: Boolean(service.problemHeading || service.problemDescription),
+    },
+    {
+      id: "deliverables",
+      nav: labels.deliverablesNav,
+      eyebrow: service.deliverablesEyebrow,
+      heading: service.deliverablesHeading,
+      body: deliverables.length ? (
+        <ul>
+          {deliverables.map((item, i) => (
+            <li key={i}>{item}</li>
+          ))}
+        </ul>
+      ) : null,
+      hasContent: Boolean(service.deliverablesHeading || deliverables.length),
+    },
+    {
+      id: "process",
+      nav: labels.processNav,
+      eyebrow: service.processEyebrow,
+      heading: service.processHeading,
+      body: service.processDescription ? <p>{service.processDescription}</p> : null,
+      hasContent: Boolean(service.processHeading || service.processDescription),
+    },
+    {
+      id: "next",
+      nav: labels.nextStepNav,
+      eyebrow: service.nextEyebrow,
+      heading: service.nextHeading,
+      body: labels.discussProject ? <Action to={`${prefix}/contact`}>{labels.discussProject}</Action> : null,
+      hasContent: Boolean(service.nextHeading),
+    },
+  ].filter((section) => section.hasContent)
 
-  const deliverablesEyebrow = (service.deliverablesEyebrow as string) || (isAr ? "ما نقدمه" : "WHAT WE DELIVER")
-  const deliverablesHeading =
-    (service.deliverablesHeading as string) ||
-    (isAr ? "مسار متكامل من القرار إلى برمجيات تعمل بكفاءة." : "A complete path from decision to working software.")
-  const deliverables = (service.deliverables as Array<{ item: string }>) || [
-    { item: isAr ? "استراتيجية المنتج والتقنية" : "Product and technical strategy" },
-    { item: isAr ? "رحلات المستخدم ومخططات الخدمة" : "User journeys and service blueprints" },
-    { item: isAr ? "تصميم الواجهات والنماذج التفاعلية" : "Interface design and interactive prototypes" },
-    { item: isAr ? "الهندسة الإنتاجية والتكاملات" : "Production engineering and integrations" },
-    { item: isAr ? "ضمان الجودة ودعم الإطلاق" : "Quality assurance and launch support" },
-  ]
-
-  const processEyebrow = (service.processEyebrow as string) || (isAr ? "طريقة عملنا" : "HOW WE WORK")
-  const processHeading =
-    (service.processHeading as string) ||
-    (isAr ? "اهتمام فائق، وتقدم مرئي مستمر." : "Senior attention, visible progress.")
-  const processDesc =
-    (service.processDescription as string) ||
-    (isAr
-      ? "يعمل فريق متعدد الوظائف في دورات عمل قصيرة وشفافة. كل دورة تنتج شيئًا ملموسًا للمراجعة والاختبار والتحسين—لتُتخذ القرارات المهمة بناءً على أدلة واقعية."
-      : "A focused cross-functional team works in short, transparent cycles. Every cycle produces something tangible to review, test, and improve—so important decisions happen with evidence.")
-
-  const nextEyebrow = (service.nextEyebrow as string) || (isAr ? "الخطوة التالية" : "NEXT STEP")
-  const nextHeading =
-    (service.nextHeading as string) ||
-    (isAr ? "ابدأ بالمشكلة، وليس بقائمة ميزات." : "Start with the problem, not a feature list.")
+  const kicker = [labels.serviceKicker, service.number].filter(Boolean).join(" ")
+  const navItems = sections.filter((section) => section.nav)
 
   return (
     <main>
-      <PageHero
-        kicker={isAr ? `خدمة ${number}` : `SERVICE ${number}`}
-        title={title}
-        intro={intro}
-      />
+      <PageHero kicker={kicker} title={service.title} intro={service.heroIntro} />
 
       <div className="detail-stage">
         <div className="detail-orbit">
-          <span>{number}</span>
+          <span>{service.number}</span>
           <i />
           <i />
           <i />
         </div>
       </div>
 
-      <section className="detail-body page-pad">
-        <aside>
-          <span>{isAr ? "في هذه الصفحة" : "ON THIS PAGE"}</span>
-          <a href="#problem">{isAr ? "المشكلة" : "The problem"}</a>
-          <a href="#deliverables">{isAr ? "المخرجات" : "Deliverables"}</a>
-          <a href="#process">{isAr ? "العملية" : "Process"}</a>
-          <a href="#next">{isAr ? "الخطوة التالية" : "Next step"}</a>
-        </aside>
+      {sections.length > 0 && (
+        <section className="detail-body page-pad">
+          <aside>
+            {labels.onThisPage && navItems.length > 0 && <span>{labels.onThisPage}</span>}
+            {navItems.map((section) => (
+              <a key={section.id} href={`#${section.id}`}>
+                {section.nav}
+              </a>
+            ))}
+          </aside>
 
-        <div>
-          <article id="problem">
-            <span className="eyebrow">{problemEyebrow}</span>
-            <h2>{problemHeading}</h2>
-            <p>{problemDesc}</p>
-          </article>
-
-          <article id="deliverables">
-            <span className="eyebrow">{deliverablesEyebrow}</span>
-            <h2>{deliverablesHeading}</h2>
-            <ul>
-              {deliverables.map((d, i) => (
-                <li key={i}>{typeof d === "string" ? d : d.item}</li>
-              ))}
-            </ul>
-          </article>
-
-          <article id="process">
-            <span className="eyebrow">{processEyebrow}</span>
-            <h2>{processHeading}</h2>
-            <p>{processDesc}</p>
-          </article>
-
-          <article id="next">
-            <span className="eyebrow">{nextEyebrow}</span>
-            <h2>{nextHeading}</h2>
-            <Action to={`${prefix}/contact`}>
-              {isAr ? "ناقش مشروعك" : "Discuss your project"}
-            </Action>
-          </article>
-        </div>
-      </section>
+          <div>
+            {sections.map((section) => (
+              <article id={section.id} key={section.id}>
+                {section.eyebrow && <span className="eyebrow">{section.eyebrow}</span>}
+                {section.heading && <h2>{section.heading}</h2>}
+                {section.body}
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
     </main>
   )
 }

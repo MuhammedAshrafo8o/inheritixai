@@ -2,53 +2,78 @@ import React from "react"
 import Link from "next/link"
 import { Action } from "../ui/Action"
 import { SectionHead } from "../ui/SectionHead"
+import { RichTextContent } from "../ui/RichTextContent"
 import type { Locale } from "@/content/types"
+import type { Project, SiteLabel } from "@/payload-types"
+import { localizedHref, mediaOf } from "@/site/metadata"
+
+type ProjectLike = Partial<Omit<Project, "id" | "blocks" | "services" | "heroImage">> & {
+  id?: number | string
+  slug: string
+  title?: string | null
+  isDevelopmentFixture?: boolean
+  heroImage?: unknown
+  blocks?: unknown
+  services?: unknown
+}
 
 interface ProjectDetailPageViewProps {
   lang: Locale
-  project: Record<string, unknown>
-  relatedProjects?: Array<Record<string, unknown>>
+  project: ProjectLike
+  labels: SiteLabel
+  relatedProjects?: Project[]
+  isDraftPreview?: boolean
 }
 
-interface ContentBlock {
-  id?: string
-  blockType: string
-  [key: string]: unknown
+type ContentBlock = { id?: string | null; blockType: string; [key: string]: unknown }
+
+/** Localized fields arrive as strings from Payload; development fixtures carry {en, ar}. */
+function textOf(value: unknown, lang: Locale): string {
+  if (!value) return ""
+  if (typeof value === "string") return value
+  if (typeof value === "object") {
+    const rec = value as Record<string, string>
+    return rec[lang] || rec.en || ""
+  }
+  return String(value)
 }
 
 export function ProjectDetailPageView({
   lang,
   project,
+  labels,
   relatedProjects = [],
+  isDraftPreview = false,
 }: ProjectDetailPageViewProps) {
   const isAr = lang === "ar"
-  const prefix = isAr ? "/ar" : ""
+  const href = (path: string) => localizedHref(path, lang)
 
-  const title = (project.title as string) || (project.slug as string)
-  const summary = (project.summary as string) || ""
-  const sector = (project.sector as string) || ""
-  const year = (project.year as string) || "2026"
-  const services = (project.services as Array<{ name?: string } | string>) || []
-  const heroImage = project.heroImage as { url?: string; alt?: string; width?: number; height?: number }
-  const client = project.client as { name?: string; logo?: { url?: string; alt?: string }; website?: string; displayMode?: string } | undefined
-  const externalLinks = (project.externalLinks as Array<{ label: string; url: string }>) || []
-  const blocks = (project.blocks as ContentBlock[]) || []
-  const isFixture = Boolean(project.isDevelopmentFixture)
-
-  const getText = (val: unknown): string => {
-    if (!val) return ""
-    if (typeof val === "string") return val
-    if (typeof val === "object" && val !== null) {
-      const rec = val as Record<string, string>
-      return rec[lang] || rec.en || rec.ar || ""
-    }
-    return String(val)
-  }
+  const title = project.title || project.slug
+  const summary = project.intro || project.summary || ""
+  const techStack = (project.techStack ?? []).map((t) => t.technology).filter(Boolean)
+  const sector = project.sector || ""
+  const year = project.year || ""
+  const services = (Array.isArray(project.services) ? project.services : []) as Array<{ name?: string | null }>
+  const heroImage = mediaOf(project.heroImage) ?? (project.heroImage as { url?: string; alt?: string } | undefined)
+  const client = typeof project.client === "object" && project.client ? project.client : undefined
+  const clientLogo = mediaOf(client?.logo)
+  const externalLinks = project.externalLinks ?? []
+  const blocks = (Array.isArray(project.blocks) ? project.blocks : []) as ContentBlock[]
+  const serviceNames = services.map((s) => s.name || "").filter(Boolean).join(" · ")
+  // Fact rows render only when both the label and the value exist.
+  const facts = (
+    [
+      [labels.sector, sector],
+      [labels.services, serviceNames],
+      [labels.year, year],
+      [labels.technology, techStack.join(" · ")],
+    ] as Array<[string | null | undefined, string]>
+  ).filter((row): row is [string, string] => Boolean(row[0] && row[1]))
 
   return (
     <main>
       <section className="project-hero page-pad">
-        {isFixture && (
+        {project.isDevelopmentFixture && (
           <div className="fixture-notice" role="note">
             <strong>{isAr ? "نموذج تطوير" : "Development fixture"}</strong>
             <span>
@@ -58,47 +83,56 @@ export function ProjectDetailPageView({
             </span>
           </div>
         )}
+        {isDraftPreview && project._status !== "published" && (labels.draftPreview || labels.draftPreviewNote) && (
+          <div className="fixture-notice" role="note">
+            {labels.draftPreview && <strong>{labels.draftPreview}</strong>}
+            {labels.draftPreviewNote && <span>{labels.draftPreviewNote}</span>}
+          </div>
+        )}
 
         <div className="project-hero-copy reveal">
-          <span className="eyebrow">{sector} · {year}</span>
+          {(sector || year) && <span className="eyebrow">{[sector, year].filter(Boolean).join(" · ")}</span>}
           <h1>{title}</h1>
-          <p>{summary}</p>
+          {summary && <p>{summary}</p>}
 
-          {/* Client info & external links */}
           {client && (
-            <div className="project-client-meta" style={{ marginTop: "1.5rem", display: "flex", alignItems: "center", gap: "1.5rem" }}>
-              {client.logo?.url && (
+            <div
+              className="project-client-meta"
+              style={{ marginTop: "1.5rem", display: "flex", alignItems: "center", gap: "1.5rem" }}
+            >
+              {clientLogo?.url && (
                 <img
-                  src={client.logo.url}
-                  alt={client.name || "Client logo"}
-                  style={{ maxHeight: "32px", width: "auto" }}
+                  src={clientLogo.url}
+                  alt={client.logoDescription || clientLogo.alt || client.name}
+                  style={{
+                    maxHeight: "32px",
+                    width: "auto",
+                    filter: client.displayMode === "monochrome" ? "grayscale(1)" : undefined,
+                  }}
                 />
               )}
-              {client.name && <strong>{client.name}</strong>}
-              {client.website && (
+              <strong>{client.name}</strong>
+              {client.website && labels.visitClientSite && (
                 <a
                   href={client.website}
                   target="_blank"
                   rel="noopener noreferrer"
-                  style={{ color: "var(--accent, #00CCFF)", textDecoration: "underline" }}
+                  style={{ color: "var(--blue)", textDecoration: "underline" }}
                 >
-                  {isAr ? "الموقع الإلكتروني للعميل" : "Visit client site"}
+                  {labels.visitClientSite}
                 </a>
               )}
             </div>
           )}
 
           {externalLinks.length > 0 && (
-            <div className="project-external-links" style={{ marginTop: "1rem", display: "flex", gap: "1rem", flexWrap: "wrap" }}>
-              {externalLinks.map((link, idx) => (
-                <a
-                  key={idx}
-                  href={link.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="action action-light"
-                >
-                  <span>{getText(link.label)}</span>
+            <div
+              className="project-external-links"
+              style={{ marginTop: "1rem", display: "flex", gap: "1rem", flexWrap: "wrap" }}
+            >
+              {externalLinks.map((link) => (
+                <a key={link.id ?? link.url} href={link.url} target="_blank" rel="noopener noreferrer" className="action">
+                  <span>{link.label}</span>
                 </a>
               ))}
             </div>
@@ -110,46 +144,36 @@ export function ProjectDetailPageView({
             <img
               src={heroImage.url}
               alt={heroImage.alt || title}
-              width={heroImage.width || 1600}
-              height={heroImage.height || 1200}
+              width={(heroImage as { width?: number }).width || 1600}
+              height={(heroImage as { height?: number }).height || 1200}
             />
           </div>
         )}
 
-        <dl className="project-services reveal">
-          <div>
-            <dt>{isAr ? "القطاع" : "Sector"}</dt>
-            <dd>{sector}</dd>
-          </div>
-          <div>
-            <dt>{isAr ? "الخدمات" : "Services"}</dt>
-            <dd>
-              {services
-                .map((s) => (typeof s === "string" ? s : s.name || ""))
-                .filter(Boolean)
-                .join(" · ")}
-            </dd>
-          </div>
-          <div>
-            <dt>{isAr ? "السنة" : "Year"}</dt>
-            <dd>{year}</dd>
-          </div>
-        </dl>
+        {facts.length > 0 && (
+          <dl className="project-services reveal">
+            {facts.map(([term, value]) => (
+              <div key={term}>
+                <dt>{term}</dt>
+                <dd>{value}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
       </section>
 
-      {/* Modular Story Blocks */}
       <div className="project-blocks page-pad">
         {blocks.map((block, idx) => {
           const key = block.id || String(idx)
 
           if (block.blockType === "metrics") {
-            const items = (block.items as Array<{ value: unknown; label: unknown }>) || []
+            const items = (block.items as Array<{ id?: string; value: unknown; label: unknown }>) || []
             return (
               <section className="project-metrics reveal" key={key}>
                 {items.map((item, itemIdx) => (
-                  <div key={itemIdx}>
-                    <strong>{getText(item.value)}</strong>
-                    <span>{getText(item.label)}</span>
+                  <div key={item.id ?? itemIdx}>
+                    <strong>{textOf(item.value, lang)}</strong>
+                    <span>{textOf(item.label, lang)}</span>
                   </div>
                 ))}
               </section>
@@ -157,17 +181,12 @@ export function ProjectDetailPageView({
           }
 
           if (block.blockType === "image") {
-            const img = block.image as { url?: string; alt?: string; width?: number; height?: number }
-            const caption = getText(block.caption)
+            const img = mediaOf(block.image)
+            const caption = textOf(block.caption, lang)
             return (
               <figure className="project-block-image reveal" key={key}>
                 {img?.url && (
-                  <img
-                    src={img.url}
-                    alt={img.alt || title}
-                    width={img.width || 1200}
-                    height={img.height || 800}
-                  />
+                  <img src={img.url} alt={img.alt || title} width={img.width || 1200} height={img.height || 800} />
                 )}
                 {caption && <figcaption>{caption}</figcaption>}
               </figure>
@@ -175,36 +194,36 @@ export function ProjectDetailPageView({
           }
 
           if (block.blockType === "quote") {
-            const quote = getText(block.quote)
-            const attribution = getText(block.attribution)
+            const attribution = textOf(block.attribution, lang)
             return (
               <figure className="project-quote reveal" key={key}>
-                <blockquote>{quote}</blockquote>
+                <blockquote>{textOf(block.quote, lang)}</blockquote>
                 {attribution && <figcaption>{attribution}</figcaption>}
               </figure>
             )
           }
 
           if (block.blockType === "cta") {
-            const heading = getText(block.heading)
-            const body = getText(block.body)
-            const actionLabel = getText(block.actionLabel) || (isAr ? "ناقش مشروعك" : "Discuss your project")
-            const actionHref = (block.actionHref as string) || `${prefix}/contact`
+            const body = textOf(block.body, lang)
+            const actionHref = textOf(block.actionHref, lang)
+            const actionLabel = textOf(block.actionLabel, lang)
             return (
               <section className="project-block project-block-cta reveal" key={key}>
-                <h2>{heading}</h2>
+                <h2>{textOf(block.heading, lang)}</h2>
                 {body && <p>{body}</p>}
-                <Action to={actionHref} light>
-                  {actionLabel}
-                </Action>
+                {actionHref && actionLabel && (
+                  <Action to={href(actionHref)} light>
+                    {actionLabel}
+                  </Action>
+                )}
               </section>
             )
           }
 
-          if (block.blockType === "intro" || block.blockType === "richText") {
-            const eyebrow = getText(block.eyebrow)
-            const heading = getText(block.heading)
-            const body = getText(block.body)
+          if (block.blockType === "intro") {
+            const eyebrow = textOf(block.eyebrow, lang)
+            const heading = textOf(block.heading, lang)
+            const body = textOf(block.body, lang)
             return (
               <section className="project-block reveal" key={key}>
                 {eyebrow && <span className="eyebrow">{eyebrow}</span>}
@@ -214,34 +233,37 @@ export function ProjectDetailPageView({
             )
           }
 
+          if (block.blockType === "richText") {
+            const heading = textOf(block.heading, lang)
+            const body = typeof block.body === "object" && block.body && !("root" in block.body)
+              ? textOf(block.body, lang)
+              : block.body
+            return (
+              <section className="project-block project-block-richtext reveal" key={key}>
+                {heading && <h2>{heading}</h2>}
+                <RichTextContent value={body} />
+              </section>
+            )
+          }
+
           return null
         })}
       </div>
 
-      {/* Related Projects */}
       {relatedProjects.length > 0 && (
         <section className="related-projects page-pad">
-          <SectionHead
-            label={isAr ? "مشاريع مرتبطة" : "Related projects"}
-            title={isAr ? "استكشف المزيد" : "Continue exploring"}
-          />
+          <SectionHead label={labels.relatedProjectsLabel} title={labels.relatedProjectsTitle} />
           <div className="projects-grid projects-grid-related">
             {relatedProjects.map((item) => {
-              const relSlug = item.slug as string
-              const relTitle = (item.title as string) || relSlug
-              const relSummary = (item.summary as string) || ""
-              const relSector = (item.sector as string) || ""
-              const relYear = (item.year as string) || "2026"
-              const relCard = item.cardImage as { url?: string; alt?: string; width?: number; height?: number }
-              const relUrl = `${prefix}/projects/${relSlug}`
-
+              const relUrl = href(`/projects/${item.slug}`)
+              const relCard = mediaOf(item.cardImage)
               return (
-                <article className="project-card reveal" key={item.id as string}>
+                <article className="project-card reveal" key={item.id}>
                   <Link href={relUrl} className="project-card-visual">
                     {relCard?.url ? (
                       <img
                         src={relCard.url}
-                        alt={relCard.alt || relTitle}
+                        alt={relCard.alt || item.title}
                         width={relCard.width || 800}
                         height={relCard.height || 600}
                       />
@@ -250,16 +272,14 @@ export function ProjectDetailPageView({
                     )}
                   </Link>
                   <div className="project-card-meta">
-                    <span>{relSector}</span>
-                    <span>{relYear}</span>
+                    <span>{item.sector}</span>
+                    <span>{item.year}</span>
                   </div>
                   <h2>
-                    <Link href={relUrl}>{relTitle}</Link>
+                    <Link href={relUrl}>{item.title}</Link>
                   </h2>
-                  <p>{relSummary}</p>
-                  <Action to={relUrl}>
-                    {isAr ? "عرض المشروع" : "View project"}
-                  </Action>
+                  <p>{item.summary}</p>
+                  {labels.viewProject && <Action to={relUrl}>{labels.viewProject}</Action>}
                 </article>
               )
             })}

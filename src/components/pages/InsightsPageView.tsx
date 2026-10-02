@@ -4,97 +4,55 @@ import { Arrow } from "../ui/Icons"
 import { PageHero } from "../ui/PageHero"
 import { SectionHead } from "../ui/SectionHead"
 import type { Locale } from "@/content/types"
+import type { ListingPage, Post } from "@/payload-types"
 
 interface InsightsPageViewProps {
   lang: Locale
-  posts: Array<Record<string, unknown>>
-  listingHeader?: {
-    kicker?: string
-    title?: string
-    intro?: string
-  }
+  posts: Post[]
+  listingHeader?: ListingPage["insights"] | null
 }
 
-export function InsightsPageView({
-  lang,
-  posts,
-  listingHeader,
-}: InsightsPageViewProps) {
-  const isAr = lang === "ar"
-  const prefix = isAr ? "/ar" : ""
-
-  const kicker = listingHeader?.kicker || "INSIGHTS"
-  const title =
-    listingHeader?.title ||
-    (isAr ? "الملاحظات وراء العمل." : "The thinking behind the work.")
-  const intro =
-    listingHeader?.intro ||
-    (isAr
-      ? "رؤى عملية حول تصميم المنتجات وهندسة البرمجيات والأتمتة والأنظمة التشغيلية بينهما."
-      : "Practical perspectives on product design, software engineering, automation, and the operational systems between them.")
-
+export function InsightsPageView({ lang, posts, listingHeader }: InsightsPageViewProps) {
+  const prefix = lang === "ar" ? "/ar" : ""
   const featured = posts.slice(0, 3)
   const remaining = posts.slice(3)
 
   return (
     <main>
-      <PageHero kicker={kicker} title={title} intro={intro} />
+      <PageHero kicker={listingHeader?.kicker} title={listingHeader?.title} intro={listingHeader?.intro} />
 
-      <section className="insights page-pad">
-        <SectionHead
-          label={isAr ? "وجهة نظرنا" : "Our perspective"}
-          title={isAr ? "أفكار للعمل الرقمي الأفضل." : "Thinking for better digital work."}
-        />
-        <div className="article-grid">
-          {featured.map((article, index) => {
-            const slug = article.slug as string
-            const color = (article.color as string) || "ink"
-            const categoryLabel = (article.categoryLabel as string) || "PRODUCT THINKING"
-            const artTitle = (article.title as string) || slug
-            const readTime = (article.readTime as string) || "7 min read"
-
-            return (
-              <Link
-                key={slug}
-                href={`${prefix}/insights/${slug}`}
-                className="article-card reveal"
-              >
-                <div className={`article-art ${color}`}>
+      {featured.length > 0 && (
+        <section className="insights page-pad">
+          <SectionHead label={listingHeader?.sectionLabel} title={listingHeader?.sectionTitle} />
+          <div className="article-grid">
+            {featured.map((article, index) => (
+              <Link key={article.id} href={`${prefix}/insights/${article.slug}`} className="article-card reveal">
+                <div className={`article-art ${article.color || "ink"}`}>
                   <span>0{index + 1}</span>
                   <i />
                 </div>
-                <span className="eyebrow">{categoryLabel}</span>
-                <h3>{artTitle}</h3>
+                {article.categoryLabel && <span className="eyebrow">{article.categoryLabel}</span>}
+                <h3>{article.title || article.slug}</h3>
                 <div className="article-meta">
-                  <span>{readTime}</span>
+                  {article.readTime && <span>{article.readTime}</span>}
                   <Arrow />
                 </div>
               </Link>
-            )
-          })}
-        </div>
-      </section>
+            ))}
+          </div>
+        </section>
+      )}
 
       {remaining.length > 0 && (
         <section className="journal-list page-pad">
-          {remaining.map((article, i) => {
-            const slug = article.slug as string
-            const artTitle = (article.title as string) || slug
-            const categoryLabel = (article.categoryLabel as string) || "STRATEGY"
-            const readTime = (article.readTime as string) || "5 MIN READ"
-
-            return (
-              <Link
-                key={slug}
-                href={`${prefix}/insights/${slug}`}
-              >
-                <span>0{i + 4}</span>
-                <h3>{artTitle}</h3>
-                <small>{categoryLabel} · {readTime}</small>
-                <Arrow />
-              </Link>
-            )
-          })}
+          {remaining.map((article, i) => (
+            <Link key={article.id} href={`${prefix}/insights/${article.slug}`}>
+              <span>0{i + 4}</span>
+              <h3>{article.title || article.slug}</h3>
+              <small>{[article.categoryLabel, article.readTime].filter(Boolean).join(" · ")}</small>
+              <Arrow />
+            </Link>
+          ))}
         </section>
       )}
     </main>

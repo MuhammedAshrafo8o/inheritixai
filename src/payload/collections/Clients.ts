@@ -1,5 +1,6 @@
 import type { CollectionConfig } from "payload"
 import { canDeleteContent, canManageContent } from "../../cms/access"
+import { revalidateAllAfterChange, revalidateAllAfterDelete } from "../hooks/revalidate"
 
 function isValidUrl(val: string | null | undefined): true | string {
   if (!val) return true
@@ -23,6 +24,10 @@ export const Clients: CollectionConfig = {
     create: canManageContent,
     update: canManageContent,
     delete: canDeleteContent,
+  },
+  hooks: {
+    afterChange: [revalidateAllAfterChange],
+    afterDelete: [revalidateAllAfterDelete],
   },
   fields: [
     {

@@ -1,11 +1,17 @@
 import type { GlobalConfig } from "payload"
 import { canManageContent } from "../../cms/access"
+import { seoField } from "../fields/seo"
+import { LISTING_COPY } from "../../content/starter-copy"
+import { revalidateGlobalAfterChange } from "../hooks/revalidate"
 
 export const ListingPages: GlobalConfig = {
   slug: "listing-pages",
   access: {
     read: () => true,
     update: canManageContent,
+  },
+  hooks: {
+    afterChange: [revalidateGlobalAfterChange],
   },
   fields: [
     {
@@ -30,6 +36,14 @@ export const ListingPages: GlobalConfig = {
           defaultValue:
             "From a new digital product to a core business system, we bring product thinking, design, and engineering together.",
         },
+        {
+          name: "cardNote",
+          type: "textarea",
+          localized: true,
+          defaultValue: LISTING_COPY.servicesCardNote.en,
+          admin: { description: "Sentence appended to every service card. Leave empty to show only the service description." },
+        },
+        seoField(),
       ],
     },
     {
@@ -54,6 +68,7 @@ export const ListingPages: GlobalConfig = {
           defaultValue:
             "We build and own focused software products for industries where clarity, speed, and a dependable workflow matter.",
         },
+        seoField(),
       ],
     },
     {
@@ -76,8 +91,9 @@ export const ListingPages: GlobalConfig = {
           type: "textarea",
           localized: true,
           defaultValue:
-            "Production-ready layouts for approved projects once Payload is connected.",
+            "Operational platforms and digital products designed and engineered with our clients.",
         },
+        seoField(),
       ],
     },
     {
@@ -102,6 +118,19 @@ export const ListingPages: GlobalConfig = {
           defaultValue:
             "Practical perspectives on product design, software engineering, automation, and the operational systems between them.",
         },
+        {
+          name: "sectionLabel",
+          type: "text",
+          localized: true,
+          defaultValue: LISTING_COPY.insightsSectionLabel.en,
+        },
+        {
+          name: "sectionTitle",
+          type: "text",
+          localized: true,
+          defaultValue: LISTING_COPY.insightsSectionTitle.en,
+        },
+        seoField(),
       ],
     },
   ],

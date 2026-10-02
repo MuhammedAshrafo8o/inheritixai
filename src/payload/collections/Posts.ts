@@ -1,14 +1,18 @@
 import type { CollectionConfig } from "payload"
 import { canDeleteContent, canManageContent, publicOrAuthenticatedRead } from "../../cms/access"
+import { slugField } from "../fields/slug"
+import { seoField } from "../fields/seo"
+import { revalidateRoutableAfterChange, revalidateRoutableAfterDelete } from "../hooks/revalidate"
+import { createPublishedSlugRedirects, detectPublishedSlugChange } from "../hooks/slugRedirects"
 
 export const Posts: CollectionConfig = {
   slug: "posts",
   admin: {
     useAsTitle: "title",
     defaultColumns: ["title", "slug", "category", "author", "_status", "updatedAt"],
-    preview: (doc) => {
+    preview: (doc, { locale }) => {
       if (!doc?.slug) return null
-      return `/api/preview?collection=posts&slug=${doc.slug}`
+      return `/api/preview?collection=posts&slug=${encodeURIComponent(String(doc.slug))}&lang=${locale === "ar" ? "ar" : "en"}`
     },
   },
   versions: {
@@ -20,6 +24,11 @@ export const Posts: CollectionConfig = {
     update: canManageContent,
     delete: canDeleteContent,
   },
+  hooks: {
+    beforeChange: [detectPublishedSlugChange("posts")],
+    afterChange: [createPublishedSlugRedirects("posts"), revalidateRoutableAfterChange("posts")],
+    afterDelete: [revalidateRoutableAfterDelete("posts")],
+  },
   fields: [
     {
       name: "title",
@@ -27,13 +36,7 @@ export const Posts: CollectionConfig = {
       localized: true,
       required: true,
     },
-    {
-      name: "slug",
-      type: "text",
-      required: true,
-      unique: true,
-      index: true,
-    },
+    slugField(),
     {
       name: "category",
       type: "relationship",
@@ -110,6 +113,9 @@ export const Posts: CollectionConfig = {
     {
       name: "sections",
       type: "array",
+      admin: {
+        description: "Article body. Each section appears in the on-page table of contents.",
+      },
       fields: [
         {
           name: "sectionId",
@@ -126,7 +132,7 @@ export const Posts: CollectionConfig = {
         },
         {
           name: "body",
-          type: "textarea",
+          type: "richText",
           localized: true,
           required: true,
         },
@@ -137,26 +143,6 @@ export const Posts: CollectionConfig = {
         },
       ],
     },
-    {
-      name: "seo",
-      type: "group",
-      fields: [
-        {
-          name: "title",
-          type: "text",
-          localized: true,
-        },
-        {
-          name: "description",
-          type: "textarea",
-          localized: true,
-        },
-        {
-          name: "ogImage",
-          type: "upload",
-          relationTo: "media",
-        },
-      ],
-    },
+    seoField(),
   ],
 }

@@ -1,0 +1,104 @@
+■ Admin and editor login and permissions
+  PASS  admin login succeeds — HTTP 200, roles=admin
+  PASS  editor login succeeds — HTTP 200, roles=editor
+  PASS  wrong password rejected — HTTP 401
+  PASS  legacy published default password rejected — HTTP 401
+  PASS  editor can only read own user record — sees 1
+  PASS  editor cannot create users — HTTP 403
+  PASS  editor cannot grant themselves admin — PATCH HTTP 200, roles now editor
+  PASS  admin cannot set a published default password — HTTP 400
+  PASS  admin can list all users — sees 2
+  PASS  anonymous REST sees no draft projects — 3 visible
+■ Client creation and logo upload
+  PASS  editor uploads logo to media — HTTP 201 http://localhost:8443/api/media/file/client-logo-muqqehar.png
+  PASS  uploaded logo is served — HTTP 200
+  PASS  thumbnail/card sizes generated
+  PASS  editor creates client with logo — HTTP 201
+  PASS  client website must be http(s) — HTTP 400
+■ Project draft creation and authorized preview
+  PASS  editor creates draft project — HTTP 201
+  PASS  anonymous visitor gets 404 for draft — HTTP 404
+  PASS  anonymous REST cannot read draft by id — HTTP 404
+  PASS  preview endpoint rejects anonymous — HTTP 401
+  PASS  query parameters never authorize preview — HTTP 401
+  PASS  editor enters preview — HTTP 307 → http://localhost:8443/projects/atlas-muqqehar
+  PASS  preview response is not cacheable
+  PASS  editor sees draft in preview — HTTP 200
+  PASS  cross-site request cannot use the editor cookie for drafts — HTTP 404
+  PASS  draft cookie without session shows nothing — HTTP 404
+  PASS  after logout, draft is denied even with old token + draft cookie — logout HTTP 200, page HTTP 404
+■ Publish, edit, reorder blocks, replace images
+  PASS  editor publishes project — HTTP 200
+  PASS  published project is public — HTTP 200
+  PASS  client name and logo rendered
+  PASS  project intro shown in hero (not the card summary)
+  PASS  tech stack rendered
+  PASS  rich text rendered by Lexical renderer
+  PASS  blocks render in saved order
+  PASS  published project appears in listing
+  PASS  published project appears in sitemap
+  PASS  edit + reorder + image replace saved — HTTP 200
+  PASS  public title updated
+  PASS  public block order updated
+  PASS  public hero image replaced
+  PASS  draft edit of a published project stays private
+  PASS  configured related project rendered
+  PASS  unpublished related selection skipped
+■ Slug redirect and unpublish behavior
+  PASS  draft-only slug change creates no redirect
+  PASS  old URL still live while rename is a draft
+  PASS  old URL 308-redirects to new slug — HTTP 308 → /projects/atlas-renamed-muqqehar
+  PASS  Arabic old URL redirects too — HTTP 308 → /ar/projects/atlas-renamed-muqqehar
+  PASS  new URL serves the project
+  PASS  redirect chains are flattened (first slug → latest) — → /projects/atlas-final-muqqehar
+  PASS  renaming back to an old slug removes its redirect (no loop) — HTTP 200
+  PASS  multi-step redirect loop rejected — HTTP 400
+  PASS  stored manual redirect resolved on any public path — HTTP 307 → /services
+  PASS  unpublished project returns 404 — HTTP 404
+  PASS  unpublished project leaves listing
+  PASS  unpublished project leaves sitemap
+  PASS  editor cannot delete content — HTTP 403
+■ Two distinct articles with rendered content and metadata
+  PASS  article 1 (seeded) renders
+  PASS  article 1 rich text rendered
+  PASS  article 1 SEO title/description
+  PASS  article 1 article metadata
+  PASS  article 1 has no Arabic hreflang (no translation)
+  PASS  article 2 hidden while draft — HTTP 404
+  PASS  publishing an incomplete Arabic translation is rejected — HTTP 400
+  PASS  editor completes and publishes article 2 (EN + full AR) — HTTP 200/200
+  PASS  article 2 renders distinct content
+  PASS  article 2 rich text list
+  PASS  article 2 SEO title + og:image
+  PASS  article 2 advertises Arabic alternate (translated)
+  PASS  Arabic article page uses Arabic title and body
+  PASS  untranslated Arabic article is noindex with canonical to English
+  PASS  sitemap lists both articles
+  PASS  sitemap excludes remaining draft article
+  PASS  sitemap excludes noIndex sample projects
+■ Branding and homepage changes through the dashboard
+  PASS  invalid brand color rejected — HTTP 400
+  PASS  admin updates branding + colors — HTTP 200
+  PASS  editor updates homepage global — HTTP 200
+  PASS  hero title updated on public homepage
+  PASS  hero CTA label + href updated
+  PASS  hidden section removed
+  PASS  section order applied (insights before capabilities)
+  PASS  added approach phase rendered
+  PASS  brand color applied to design tokens
+  PASS  logo rendered in header
+  PASS  favicon from CMS
+  PASS  Arabic homepage keeps its own hero (localized field)
+  PASS  Arabic CTA prefixed with /ar
+  PASS  featured project shown in homepage story card
+  PASS  manual story card restored
+  PASS  homepage and branding restored after test
+──────── Summary ────────
+PASSED  Admin and editor login and permissions (10/10)
+PASSED  Client creation and logo upload (5/5)
+PASSED  Project draft creation and authorized preview (11/11)
+PASSED  Publish, edit, reorder blocks, replace images (16/16)
+PASSED  Slug redirect and unpublish behavior (13/13)
+PASSED  Two distinct articles with rendered content and metadata (17/17)
+PASSED  Branding and homepage changes through the dashboard (16/16)
+88 passed, 0 failed (run muqqehar)

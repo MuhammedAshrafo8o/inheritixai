@@ -157,6 +157,10 @@ export interface User {
   id: number;
   name: string;
   roles: ('admin' | 'editor')[];
+  /**
+   * Set automatically when an account was found using a published default password. Cleared when a new password is saved.
+   */
+  passwordRotationRequired?: boolean | null;
   updatedAt: string;
   createdAt: string;
   email: string;
@@ -260,7 +264,7 @@ export interface Client {
 export interface Project {
   id: number;
   /**
-   * URL slug for this project (e.g. logistics-control-system).
+   * URL segment, lowercase-with-hyphens. Changing the slug of a published record creates a permanent redirect when the change is published.
    */
   slug: string;
   title: string;
@@ -387,7 +391,7 @@ export interface Project {
       )[]
     | null;
   /**
-   * Related projects displayed at the bottom of the page.
+   * Related projects shown at the bottom of the page, in this order. Unpublished selections are skipped on the public site.
    */
   relatedProjects?: (number | Project)[] | null;
   /**
@@ -399,10 +403,19 @@ export interface Project {
         id?: string | null;
       }[]
     | null;
+  /**
+   * Search and social metadata. Leave blank to use the page content and the site defaults.
+   */
   seo?: {
     title?: string | null;
     description?: string | null;
+    /**
+     * Social sharing image (1200×630 recommended).
+     */
     ogImage?: (number | null) | Media;
+    /**
+     * Hide this page from search engines and the sitemap.
+     */
     noIndex?: boolean | null;
   };
   updatedAt: string;
@@ -415,6 +428,9 @@ export interface Project {
  */
 export interface Product {
   id: number;
+  /**
+   * URL segment, lowercase-with-hyphens. Changing the slug of a published record creates a permanent redirect when the change is published.
+   */
   slug: string;
   name: string;
   /**
@@ -426,6 +442,10 @@ export interface Product {
   summary: string;
   heroHeadline: string;
   heroDescription: string;
+  /**
+   * Copy for the homepage 'Our products' section. Falls back to the summary.
+   */
+  homeDescription?: string | null;
   visualType?: ('dashboard' | 'phone') | null;
   valuePoints?:
     | {
@@ -441,6 +461,10 @@ export interface Product {
         id?: string | null;
       }[]
     | null;
+  /**
+   * Heading of the core workflow section. Leave empty to hide the heading.
+   */
+  workflowTitle?: string | null;
   tourTitle?: string | null;
   tourDescription?: string | null;
   faqs?:
@@ -451,10 +475,20 @@ export interface Product {
       }[]
     | null;
   displayOrder?: number | null;
+  /**
+   * Search and social metadata. Leave blank to use the page content and the site defaults.
+   */
   seo?: {
     title?: string | null;
     description?: string | null;
+    /**
+     * Social sharing image (1200×630 recommended).
+     */
     ogImage?: (number | null) | Media;
+    /**
+     * Hide this page from search engines and the sitemap.
+     */
+    noIndex?: boolean | null;
   };
   updatedAt: string;
   createdAt: string;
@@ -467,6 +501,9 @@ export interface Product {
 export interface Service {
   id: number;
   number: string;
+  /**
+   * URL segment, lowercase-with-hyphens. Changing the slug of a published record creates a permanent redirect when the change is published.
+   */
   slug: string;
   title: string;
   shortDescription: string;
@@ -488,10 +525,20 @@ export interface Service {
   nextEyebrow?: string | null;
   nextHeading?: string | null;
   displayOrder?: number | null;
+  /**
+   * Search and social metadata. Leave blank to use the page content and the site defaults.
+   */
   seo?: {
     title?: string | null;
     description?: string | null;
+    /**
+     * Social sharing image (1200×630 recommended).
+     */
     ogImage?: (number | null) | Media;
+    /**
+     * Hide this page from search engines and the sitemap.
+     */
+    noIndex?: boolean | null;
   };
   updatedAt: string;
   createdAt: string;
@@ -504,6 +551,9 @@ export interface Service {
 export interface Post {
   id: number;
   title: string;
+  /**
+   * URL segment, lowercase-with-hyphens. Changing the slug of a published record creates a permanent redirect when the change is published.
+   */
   slug: string;
   category?: (number | null) | Category;
   /**
@@ -520,6 +570,9 @@ export interface Post {
   coverSubtext?: string | null;
   coverCaption?: string | null;
   leadParagraph?: string | null;
+  /**
+   * Article body. Each section appears in the on-page table of contents.
+   */
   sections?:
     | {
         /**
@@ -527,15 +580,39 @@ export interface Post {
          */
         sectionId?: string | null;
         heading: string;
-        body: string;
+        body: {
+          root: {
+            type: string;
+            children: {
+              type: any;
+              version: number;
+              [k: string]: unknown;
+            }[];
+            direction: ('ltr' | 'rtl') | null;
+            format: 'left' | 'start' | 'center' | 'right' | 'end' | 'justify' | '';
+            indent: number;
+            version: number;
+          };
+          [k: string]: unknown;
+        };
         quote?: string | null;
         id?: string | null;
       }[]
     | null;
+  /**
+   * Search and social metadata. Leave blank to use the page content and the site defaults.
+   */
   seo?: {
     title?: string | null;
     description?: string | null;
+    /**
+     * Social sharing image (1200×630 recommended).
+     */
     ogImage?: (number | null) | Media;
+    /**
+     * Hide this page from search engines and the sitemap.
+     */
+    noIndex?: boolean | null;
   };
   updatedAt: string;
   createdAt: string;
@@ -575,9 +652,19 @@ export interface Author {
  */
 export interface Redirect {
   id: number;
+  /**
+   * Old public path, e.g. /projects/old-slug
+   */
   from: string;
+  /**
+   * Destination path (/new-path) or absolute https:// URL.
+   */
   to: string;
-  statusCode?: ('308' | '301' | '307') | null;
+  /**
+   * 308 for moved content (search engines transfer ranking), 307 for temporary moves.
+   */
+  statusCode: '308' | '307';
+  source?: ('manual' | 'slug-change') | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -694,6 +781,7 @@ export interface PayloadMigration {
 export interface UsersSelect<T extends boolean = true> {
   name?: T;
   roles?: T;
+  passwordRotationRequired?: T;
   updatedAt?: T;
   createdAt?: T;
   email?: T;
@@ -906,6 +994,7 @@ export interface ProductsSelect<T extends boolean = true> {
   summary?: T;
   heroHeadline?: T;
   heroDescription?: T;
+  homeDescription?: T;
   visualType?: T;
   valuePoints?:
     | T
@@ -921,6 +1010,7 @@ export interface ProductsSelect<T extends boolean = true> {
         name?: T;
         id?: T;
       };
+  workflowTitle?: T;
   tourTitle?: T;
   tourDescription?: T;
   faqs?:
@@ -937,6 +1027,7 @@ export interface ProductsSelect<T extends boolean = true> {
         title?: T;
         description?: T;
         ogImage?: T;
+        noIndex?: T;
       };
   updatedAt?: T;
   createdAt?: T;
@@ -975,6 +1066,7 @@ export interface ServicesSelect<T extends boolean = true> {
         title?: T;
         description?: T;
         ogImage?: T;
+        noIndex?: T;
       };
   updatedAt?: T;
   createdAt?: T;
@@ -1014,6 +1106,7 @@ export interface PostsSelect<T extends boolean = true> {
         title?: T;
         description?: T;
         ogImage?: T;
+        noIndex?: T;
       };
   updatedAt?: T;
   createdAt?: T;
@@ -1050,6 +1143,7 @@ export interface RedirectsSelect<T extends boolean = true> {
   from?: T;
   to?: T;
   statusCode?: T;
+  source?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -1101,11 +1195,37 @@ export interface SiteSetting {
   id: number;
   siteName: string;
   /**
-   * Validated brand colors used across UI accents.
+   * Logos and favicon used in the website header, footer and browser tab.
+   */
+  branding?: {
+    /**
+     * Header logo on light background (SVG or PNG). Falls back to the INHERITIX mark.
+     */
+    logo?: (number | null) | Media;
+    /**
+     * Footer logo on dark background. Falls back to the header logo.
+     */
+    logoLight?: (number | null) | Media;
+    /**
+     * Square PNG or SVG, at least 48×48.
+     */
+    favicon?: (number | null) | Media;
+  };
+  /**
+   * Validated brand colors applied to the website design tokens. Defaults match the approved design.
    */
   brandColors?: {
+    /**
+     * Primary blue (--blue): links, active navigation, accent headline.
+     */
     primary?: string | null;
+    /**
+     * Accent cyan (--cyan): highlights, focus rings, progress bar.
+     */
     accent?: string | null;
+    /**
+     * Ink navy (--navy): body text, dark sections, buttons.
+     */
     dark?: string | null;
   };
   defaultSeo?: {
@@ -1136,6 +1256,9 @@ export interface Navigation {
   id: number;
   items: {
     label: string;
+    /**
+     * English path; the Arabic site prefixes /ar automatically.
+     */
     href: string;
     id?: string | null;
   }[];
@@ -1158,33 +1281,100 @@ export interface PageHome {
   heroCopy: string;
   heroPrimaryCta?: {
     label?: string | null;
+    /**
+     * Site paths are automatically prefixed with /ar on the Arabic site.
+     */
     href?: string | null;
   };
   heroSecondaryCta?: {
     label?: string | null;
+    /**
+     * Site paths are automatically prefixed with /ar on the Arabic site.
+     */
     href?: string | null;
   };
+  /**
+   * Drag to reorder homepage sections. Sections missing from this list are appended in the default order. Use each section's Visible toggle to hide it.
+   */
+  sectionOrder?:
+    | {
+        section: 'showcase' | 'selectedWork' | 'capabilities' | 'products' | 'approach' | 'perspective' | 'insights';
+        id?: string | null;
+      }[]
+    | null;
   showcaseSection?: {
+    /**
+     * Show this section on the homepage.
+     */
     visible?: boolean | null;
     stageLabel?: string | null;
     stageNote?: string | null;
   };
   selectedWorkSection?: {
+    /**
+     * Show this section on the homepage.
+     */
     visible?: boolean | null;
     label?: string | null;
     title?: string | null;
+    /**
+     * Large feature card (name, summary and mockup come from the product).
+     */
+    featuredProduct?: (number | null) | Product;
+    featuredEyebrow?: string | null;
+    /**
+     * Smaller product card.
+     */
+    secondaryProduct?: (number | null) | Product;
+    secondaryEyebrow?: string | null;
+    productCtaLabel?: string | null;
+    /**
+     * Capability story card next to the product card.
+     */
+    storyCard?: {
+      visible?: boolean | null;
+      /**
+       * “Featured project” shows the first published project marked Featured (by display order), falling back to the manual copy when none exists.
+       */
+      source?: ('manual' | 'featuredProject') | null;
+      visualIndex?: string | null;
+      visualText?: string | null;
+      eyebrow?: string | null;
+      title?: string | null;
+      description?: string | null;
+      cta?: {
+        label?: string | null;
+        /**
+         * Site paths are automatically prefixed with /ar on the Arabic site.
+         */
+        href?: string | null;
+      };
+    };
   };
   capabilitiesSection?: {
+    /**
+     * Show this section on the homepage.
+     */
     visible?: boolean | null;
     label?: string | null;
     title?: string | null;
   };
   productsDarkSection?: {
+    /**
+     * Show this section on the homepage.
+     */
     visible?: boolean | null;
     label?: string | null;
     title?: string | null;
+    /**
+     * Button text before the product name, e.g. “Explore LOGISTTEX”.
+     */
+    ctaPrefix?: string | null;
   };
   approachSection?: {
+    /**
+     * Show this section on the homepage.
+     */
     visible?: boolean | null;
     label?: string | null;
     title?: string | null;
@@ -1198,17 +1388,55 @@ export interface PageHome {
       | null;
   };
   perspectiveSection?: {
+    /**
+     * Show this section on the homepage.
+     */
     visible?: boolean | null;
     eyebrow?: string | null;
     title?: string | null;
     description?: string | null;
-    ctaLabel?: string | null;
+    cta?: {
+      label?: string | null;
+      /**
+       * Site paths are automatically prefixed with /ar on the Arabic site.
+       */
+      href?: string | null;
+    };
+    /**
+     * Uploaded image (preferred). Its localized alt text is used.
+     */
+    image?: (number | null) | Media;
+    /**
+     * Fallback external image when no upload is selected.
+     */
     imageUrl?: string | null;
+    /**
+     * Alt text for the fallback external image.
+     */
+    imageAlt?: string | null;
   };
   insightsSection?: {
+    /**
+     * Show this section on the homepage.
+     */
     visible?: boolean | null;
     label?: string | null;
     title?: string | null;
+  };
+  /**
+   * Search and social metadata. Leave blank to use the page content and the site defaults.
+   */
+  seo?: {
+    title?: string | null;
+    description?: string | null;
+    /**
+     * Social sharing image (1200×630 recommended).
+     */
+    ogImage?: (number | null) | Media;
+    /**
+     * Hide this page from search engines and the sitemap.
+     */
+    noIndex?: boolean | null;
   };
   updatedAt?: string | null;
   createdAt?: string | null;
@@ -1222,6 +1450,14 @@ export interface PageAbout {
   kicker?: string | null;
   title: string;
   intro: string;
+  /**
+   * Uploaded hero image (preferred). Its localized alt text is used.
+   */
+  image?: (number | null) | Media;
+  /**
+   * Alt text for the fallback external image.
+   */
+  imageAlt?: string | null;
   imageUrl?: string | null;
   manifestoEyebrow?: string | null;
   manifestoTitle?: string | null;
@@ -1235,6 +1471,21 @@ export interface PageAbout {
         id?: string | null;
       }[]
     | null;
+  /**
+   * Search and social metadata. Leave blank to use the page content and the site defaults.
+   */
+  seo?: {
+    title?: string | null;
+    description?: string | null;
+    /**
+     * Social sharing image (1200×630 recommended).
+     */
+    ogImage?: (number | null) | Media;
+    /**
+     * Hide this page from search engines and the sitemap.
+     */
+    noIndex?: boolean | null;
+  };
   updatedAt?: string | null;
   createdAt?: string | null;
 }
@@ -1253,6 +1504,46 @@ export interface PageContact {
    * Truthful boundary notice regarding form submissions in Milestone Two.
    */
   boundaryNotice?: string | null;
+  /**
+   * Contact form copy. Product and service choices come from published Products and Services. Submission handling arrives in Milestone Three.
+   */
+  form?: {
+    directContactLabel?: string | null;
+    projectTab?: string | null;
+    demoTab?: string | null;
+    generalTab?: string | null;
+    projectHeading?: string | null;
+    demoHeading?: string | null;
+    generalHeading?: string | null;
+    nameLabel?: string | null;
+    namePlaceholder?: string | null;
+    emailLabel?: string | null;
+    emailPlaceholder?: string | null;
+    productLabel?: string | null;
+    serviceLabel?: string | null;
+    messageLabel?: string | null;
+    messagePlaceholder?: string | null;
+    submitLabel?: string | null;
+    statusLabel?: string | null;
+    nameError?: string | null;
+    emailError?: string | null;
+    messageError?: string | null;
+  };
+  /**
+   * Search and social metadata. Leave blank to use the page content and the site defaults.
+   */
+  seo?: {
+    title?: string | null;
+    description?: string | null;
+    /**
+     * Social sharing image (1200×630 recommended).
+     */
+    ogImage?: (number | null) | Media;
+    /**
+     * Hide this page from search engines and the sitemap.
+     */
+    noIndex?: boolean | null;
+  };
   updatedAt?: string | null;
   createdAt?: string | null;
 }
@@ -1266,26 +1557,94 @@ export interface ListingPage {
     kicker?: string | null;
     title?: string | null;
     intro?: string | null;
+    /**
+     * Sentence appended to every service card. Leave empty to show only the service description.
+     */
+    cardNote?: string | null;
+    /**
+     * Search and social metadata. Leave blank to use the page content and the site defaults.
+     */
+    seo?: {
+      title?: string | null;
+      description?: string | null;
+      /**
+       * Social sharing image (1200×630 recommended).
+       */
+      ogImage?: (number | null) | Media;
+      /**
+       * Hide this page from search engines and the sitemap.
+       */
+      noIndex?: boolean | null;
+    };
   };
   products?: {
     kicker?: string | null;
     title?: string | null;
     intro?: string | null;
+    /**
+     * Search and social metadata. Leave blank to use the page content and the site defaults.
+     */
+    seo?: {
+      title?: string | null;
+      description?: string | null;
+      /**
+       * Social sharing image (1200×630 recommended).
+       */
+      ogImage?: (number | null) | Media;
+      /**
+       * Hide this page from search engines and the sitemap.
+       */
+      noIndex?: boolean | null;
+    };
   };
   projects?: {
     kicker?: string | null;
     title?: string | null;
     intro?: string | null;
+    /**
+     * Search and social metadata. Leave blank to use the page content and the site defaults.
+     */
+    seo?: {
+      title?: string | null;
+      description?: string | null;
+      /**
+       * Social sharing image (1200×630 recommended).
+       */
+      ogImage?: (number | null) | Media;
+      /**
+       * Hide this page from search engines and the sitemap.
+       */
+      noIndex?: boolean | null;
+    };
   };
   insights?: {
     kicker?: string | null;
     title?: string | null;
     intro?: string | null;
+    sectionLabel?: string | null;
+    sectionTitle?: string | null;
+    /**
+     * Search and social metadata. Leave blank to use the page content and the site defaults.
+     */
+    seo?: {
+      title?: string | null;
+      description?: string | null;
+      /**
+       * Social sharing image (1200×630 recommended).
+       */
+      ogImage?: (number | null) | Media;
+      /**
+       * Hide this page from search engines and the sitemap.
+       */
+      noIndex?: boolean | null;
+    };
   };
   updatedAt?: string | null;
   createdAt?: string | null;
 }
 /**
+ * Shared visitor-facing labels. Clearing a label hides that element on the website.
+ *
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "site-labels".
  */
@@ -1294,6 +1653,11 @@ export interface SiteLabel {
   exploreWork?: string | null;
   startProject?: string | null;
   viewProduct?: string | null;
+  viewProject?: string | null;
+  /**
+   * Prefix for product links, e.g. “Explore LOGISTTEX”.
+   */
+  explore?: string | null;
   readStory?: string | null;
   seeService?: string | null;
   requestDemo?: string | null;
@@ -1303,7 +1667,76 @@ export interface SiteLabel {
   nextPage?: string | null;
   backToTop?: string | null;
   skipToContent?: string | null;
+  /**
+   * Screen-reader label of the language switch.
+   */
   changeLanguage?: string | null;
+  /**
+   * Visible text of the language switch (e.g. العربية on English pages, EN on Arabic pages).
+   */
+  languageToggle?: string | null;
+  mainNavigation?: string | null;
+  openMenu?: string | null;
+  closeMenu?: string | null;
+  sector?: string | null;
+  services?: string | null;
+  year?: string | null;
+  technology?: string | null;
+  visitClientSite?: string | null;
+  relatedProjectsLabel?: string | null;
+  relatedProjectsTitle?: string | null;
+  /**
+   * Screen-reader heading of the project grid.
+   */
+  projectList?: string | null;
+  /**
+   * Screen-reader label of the sector filter.
+   */
+  filterProjects?: string | null;
+  /**
+   * Screen-reader label of the pagination.
+   */
+  projectPages?: string | null;
+  /**
+   * Shown to signed-in editors on unpublished previews.
+   */
+  draftPreview?: string | null;
+  draftPreviewNote?: string | null;
+  contents?: string | null;
+  moreInsightsLabel?: string | null;
+  moreInsightsTitle?: string | null;
+  articleCta?: {
+    visible?: boolean | null;
+    eyebrow?: string | null;
+    title?: string | null;
+    label?: string | null;
+    /**
+     * Site path; /ar is added automatically on Arabic pages.
+     */
+    href?: string | null;
+  };
+  /**
+   * Shown before the service number, e.g. “SERVICE 01”.
+   */
+  serviceKicker?: string | null;
+  onThisPage?: string | null;
+  problemNav?: string | null;
+  deliverablesNav?: string | null;
+  processNav?: string | null;
+  nextStepNav?: string | null;
+  coreWorkflow?: string | null;
+  interfaceTour?: string | null;
+  interfaceTourTitle?: string | null;
+  faq?: string | null;
+  faqTitle?: string | null;
+  notFoundEyebrow?: string | null;
+  notFoundTitle?: string | null;
+  notFoundBody?: string | null;
+  notFoundLink?: string | null;
+  errorEyebrow?: string | null;
+  errorTitle?: string | null;
+  errorBody?: string | null;
+  errorRetry?: string | null;
   updatedAt?: string | null;
   createdAt?: string | null;
 }
@@ -1313,6 +1746,13 @@ export interface SiteLabel {
  */
 export interface SiteSettingsSelect<T extends boolean = true> {
   siteName?: T;
+  branding?:
+    | T
+    | {
+        logo?: T;
+        logoLight?: T;
+        favicon?: T;
+      };
   brandColors?:
     | T
     | {
@@ -1386,6 +1826,12 @@ export interface PageHomeSelect<T extends boolean = true> {
         label?: T;
         href?: T;
       };
+  sectionOrder?:
+    | T
+    | {
+        section?: T;
+        id?: T;
+      };
   showcaseSection?:
     | T
     | {
@@ -1399,6 +1845,28 @@ export interface PageHomeSelect<T extends boolean = true> {
         visible?: T;
         label?: T;
         title?: T;
+        featuredProduct?: T;
+        featuredEyebrow?: T;
+        secondaryProduct?: T;
+        secondaryEyebrow?: T;
+        productCtaLabel?: T;
+        storyCard?:
+          | T
+          | {
+              visible?: T;
+              source?: T;
+              visualIndex?: T;
+              visualText?: T;
+              eyebrow?: T;
+              title?: T;
+              description?: T;
+              cta?:
+                | T
+                | {
+                    label?: T;
+                    href?: T;
+                  };
+            };
       };
   capabilitiesSection?:
     | T
@@ -1413,6 +1881,7 @@ export interface PageHomeSelect<T extends boolean = true> {
         visible?: T;
         label?: T;
         title?: T;
+        ctaPrefix?: T;
       };
   approachSection?:
     | T
@@ -1436,8 +1905,15 @@ export interface PageHomeSelect<T extends boolean = true> {
         eyebrow?: T;
         title?: T;
         description?: T;
-        ctaLabel?: T;
+        cta?:
+          | T
+          | {
+              label?: T;
+              href?: T;
+            };
+        image?: T;
         imageUrl?: T;
+        imageAlt?: T;
       };
   insightsSection?:
     | T
@@ -1445,6 +1921,14 @@ export interface PageHomeSelect<T extends boolean = true> {
         visible?: T;
         label?: T;
         title?: T;
+      };
+  seo?:
+    | T
+    | {
+        title?: T;
+        description?: T;
+        ogImage?: T;
+        noIndex?: T;
       };
   updatedAt?: T;
   createdAt?: T;
@@ -1458,6 +1942,8 @@ export interface PageAboutSelect<T extends boolean = true> {
   kicker?: T;
   title?: T;
   intro?: T;
+  image?: T;
+  imageAlt?: T;
   imageUrl?: T;
   manifestoEyebrow?: T;
   manifestoTitle?: T;
@@ -1470,6 +1956,14 @@ export interface PageAboutSelect<T extends boolean = true> {
         title?: T;
         description?: T;
         id?: T;
+      };
+  seo?:
+    | T
+    | {
+        title?: T;
+        description?: T;
+        ogImage?: T;
+        noIndex?: T;
       };
   updatedAt?: T;
   createdAt?: T;
@@ -1486,6 +1980,38 @@ export interface PageContactSelect<T extends boolean = true> {
   directEmail?: T;
   directNote?: T;
   boundaryNotice?: T;
+  form?:
+    | T
+    | {
+        directContactLabel?: T;
+        projectTab?: T;
+        demoTab?: T;
+        generalTab?: T;
+        projectHeading?: T;
+        demoHeading?: T;
+        generalHeading?: T;
+        nameLabel?: T;
+        namePlaceholder?: T;
+        emailLabel?: T;
+        emailPlaceholder?: T;
+        productLabel?: T;
+        serviceLabel?: T;
+        messageLabel?: T;
+        messagePlaceholder?: T;
+        submitLabel?: T;
+        statusLabel?: T;
+        nameError?: T;
+        emailError?: T;
+        messageError?: T;
+      };
+  seo?:
+    | T
+    | {
+        title?: T;
+        description?: T;
+        ogImage?: T;
+        noIndex?: T;
+      };
   updatedAt?: T;
   createdAt?: T;
   globalType?: T;
@@ -1501,6 +2027,15 @@ export interface ListingPagesSelect<T extends boolean = true> {
         kicker?: T;
         title?: T;
         intro?: T;
+        cardNote?: T;
+        seo?:
+          | T
+          | {
+              title?: T;
+              description?: T;
+              ogImage?: T;
+              noIndex?: T;
+            };
       };
   products?:
     | T
@@ -1508,6 +2043,14 @@ export interface ListingPagesSelect<T extends boolean = true> {
         kicker?: T;
         title?: T;
         intro?: T;
+        seo?:
+          | T
+          | {
+              title?: T;
+              description?: T;
+              ogImage?: T;
+              noIndex?: T;
+            };
       };
   projects?:
     | T
@@ -1515,6 +2058,14 @@ export interface ListingPagesSelect<T extends boolean = true> {
         kicker?: T;
         title?: T;
         intro?: T;
+        seo?:
+          | T
+          | {
+              title?: T;
+              description?: T;
+              ogImage?: T;
+              noIndex?: T;
+            };
       };
   insights?:
     | T
@@ -1522,6 +2073,16 @@ export interface ListingPagesSelect<T extends boolean = true> {
         kicker?: T;
         title?: T;
         intro?: T;
+        sectionLabel?: T;
+        sectionTitle?: T;
+        seo?:
+          | T
+          | {
+              title?: T;
+              description?: T;
+              ogImage?: T;
+              noIndex?: T;
+            };
       };
   updatedAt?: T;
   createdAt?: T;
@@ -1535,6 +2096,8 @@ export interface SiteLabelsSelect<T extends boolean = true> {
   exploreWork?: T;
   startProject?: T;
   viewProduct?: T;
+  viewProject?: T;
+  explore?: T;
   readStory?: T;
   seeService?: T;
   requestDemo?: T;
@@ -1545,6 +2108,53 @@ export interface SiteLabelsSelect<T extends boolean = true> {
   backToTop?: T;
   skipToContent?: T;
   changeLanguage?: T;
+  languageToggle?: T;
+  mainNavigation?: T;
+  openMenu?: T;
+  closeMenu?: T;
+  sector?: T;
+  services?: T;
+  year?: T;
+  technology?: T;
+  visitClientSite?: T;
+  relatedProjectsLabel?: T;
+  relatedProjectsTitle?: T;
+  projectList?: T;
+  filterProjects?: T;
+  projectPages?: T;
+  draftPreview?: T;
+  draftPreviewNote?: T;
+  contents?: T;
+  moreInsightsLabel?: T;
+  moreInsightsTitle?: T;
+  articleCta?:
+    | T
+    | {
+        visible?: T;
+        eyebrow?: T;
+        title?: T;
+        label?: T;
+        href?: T;
+      };
+  serviceKicker?: T;
+  onThisPage?: T;
+  problemNav?: T;
+  deliverablesNav?: T;
+  processNav?: T;
+  nextStepNav?: T;
+  coreWorkflow?: T;
+  interfaceTour?: T;
+  interfaceTourTitle?: T;
+  faq?: T;
+  faqTitle?: T;
+  notFoundEyebrow?: T;
+  notFoundTitle?: T;
+  notFoundBody?: T;
+  notFoundLink?: T;
+  errorEyebrow?: T;
+  errorTitle?: T;
+  errorBody?: T;
+  errorRetry?: T;
   updatedAt?: T;
   createdAt?: T;
   globalType?: T;
