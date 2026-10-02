@@ -1,6 +1,7 @@
 import * as migration_20261002_013702_milestone_two_schema from './20261002_013702_milestone_two_schema';
 import * as migration_20261002_022010_home_story_card_source from './20261002_022010_home_story_card_source';
 import * as migration_20261002_083916_content_controls from './20261002_083916_content_controls';
+import * as migration_20261002_093640_localized_visibility_controls from './20261002_093640_localized_visibility_controls';
 
 export const migrations = [
   {
@@ -16,6 +17,11 @@ export const migrations = [
   {
     up: migration_20261002_083916_content_controls.up,
     down: migration_20261002_083916_content_controls.down,
-    name: '20261002_083916_content_controls'
+    name: '20261002_083916_content_controls',
+  },
+  {
+    up: migration_20261002_093640_localized_visibility_controls.up,
+    down: migration_20261002_093640_localized_visibility_controls.down,
+    name: '20261002_093640_localized_visibility_controls'
   },
 ];

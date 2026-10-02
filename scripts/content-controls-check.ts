@@ -59,6 +59,71 @@ async function main() {
   const E = await login(email, password)
   const A = await login(adminEmail, adminPassword)
 
+  section("Arabic optional content and visibility are independent")
+  const labelsEn = await setGlobal(E, "site-labels", "en", {})
+  await setGlobal(E, "site-labels", "en", {
+    contents: "English contents " + RUN,
+    articleCta: {
+      ...labelsEn.articleCta,
+      visible: true,
+      title: "English article CTA " + RUN,
+    },
+  })
+  const labelsAr = await setGlobal(E, "site-labels", "ar", {})
+  await setGlobal(E, "site-labels", "ar", {
+    contents: "",
+    articleCta: { ...labelsAr.articleCta, visible: false },
+  })
+  const [localizedArticleEn, localizedArticleAr] = await Promise.all([
+    page("/insights/software-people-adopt"),
+    page("/ar/insights/software-people-adopt"),
+  ])
+  check(
+    "clearing an Arabic optional label does not restore English",
+    !localizedArticleAr.html.includes("English contents " + RUN),
+  )
+  check(
+    "clearing an Arabic optional label leaves English unchanged",
+    localizedArticleEn.html.includes("English contents " + RUN),
+  )
+  check(
+    "explicit untranslated-record fallback keeps English canonical + noindex",
+    localizedArticleAr.html.includes("Business software people actually adopt") &&
+      localizedArticleAr.html.includes('name="robots" content="noindex') &&
+      localizedArticleAr.html.includes(
+        'rel="canonical" href="http://localhost:8443/insights/software-people-adopt"',
+      ),
+  )
+  check(
+    "Arabic CTA visibility is independent",
+    !localizedArticleAr.html.includes("context-link") &&
+      localizedArticleEn.html.includes("English article CTA " + RUN),
+  )
+
+  const homeEn = await setGlobal(E, "page-home", "en", {})
+  await setGlobal(E, "page-home", "en", {
+    insightsSection: {
+      ...homeEn.insightsSection,
+      visible: true,
+      title: "English insights " + RUN,
+    },
+  })
+  const homeAr = await setGlobal(E, "page-home", "ar", {})
+  await setGlobal(E, "page-home", "ar", {
+    insightsSection: {
+      ...homeAr.insightsSection,
+      visible: false,
+      title: "Arabic hidden insights " + RUN,
+    },
+  })
+  const [localizedHomeEn, localizedHomeAr] = await Promise.all([page("/"), page("/ar")])
+  check(
+    "hiding an Arabic section leaves the English section visible",
+    localizedHomeEn.html.includes("English insights " + RUN) &&
+      !localizedHomeAr.html.includes("Arabic hidden insights " + RUN) &&
+      !localizedHomeAr.html.includes("English insights " + RUN),
+  )
+
   // ── Site Labels drive previously hardcoded copy ──────────────────────────
   section("Site Labels drive visitor-facing copy")
   const project = (await json(await http("/api/projects?where[_status][equals]=published&limit=1&depth=0"))).docs[0]

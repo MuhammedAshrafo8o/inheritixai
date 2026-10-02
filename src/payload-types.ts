@@ -1304,7 +1304,7 @@ export interface PageHome {
     | null;
   showcaseSection?: {
     /**
-     * Show this section on the homepage.
+     * Show this section for the selected locale.
      */
     visible?: boolean | null;
     stageLabel?: string | null;
@@ -1312,7 +1312,7 @@ export interface PageHome {
   };
   selectedWorkSection?: {
     /**
-     * Show this section on the homepage.
+     * Show this section for the selected locale.
      */
     visible?: boolean | null;
     label?: string | null;
@@ -1332,6 +1332,9 @@ export interface PageHome {
      * Capability story card next to the product card.
      */
     storyCard?: {
+      /**
+       * Show this story card for the selected locale.
+       */
       visible?: boolean | null;
       /**
        * “Featured project” shows the first published project marked Featured (by display order), falling back to the manual copy when none exists.
@@ -1353,7 +1356,7 @@ export interface PageHome {
   };
   capabilitiesSection?: {
     /**
-     * Show this section on the homepage.
+     * Show this section for the selected locale.
      */
     visible?: boolean | null;
     label?: string | null;
@@ -1361,7 +1364,7 @@ export interface PageHome {
   };
   productsDarkSection?: {
     /**
-     * Show this section on the homepage.
+     * Show this section for the selected locale.
      */
     visible?: boolean | null;
     label?: string | null;
@@ -1373,7 +1376,7 @@ export interface PageHome {
   };
   approachSection?: {
     /**
-     * Show this section on the homepage.
+     * Show this section for the selected locale.
      */
     visible?: boolean | null;
     label?: string | null;
@@ -1389,7 +1392,7 @@ export interface PageHome {
   };
   perspectiveSection?: {
     /**
-     * Show this section on the homepage.
+     * Show this section for the selected locale.
      */
     visible?: boolean | null;
     eyebrow?: string | null;
@@ -1417,7 +1420,7 @@ export interface PageHome {
   };
   insightsSection?: {
     /**
-     * Show this section on the homepage.
+     * Show this section for the selected locale.
      */
     visible?: boolean | null;
     label?: string | null;
@@ -1706,6 +1709,9 @@ export interface SiteLabel {
   moreInsightsLabel?: string | null;
   moreInsightsTitle?: string | null;
   articleCta?: {
+    /**
+     * Show the article call to action for the selected locale.
+     */
     visible?: boolean | null;
     eyebrow?: string | null;
     title?: string | null;

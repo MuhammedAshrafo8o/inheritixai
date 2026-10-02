@@ -84,7 +84,13 @@ export const SiteLabels: GlobalConfig = {
               type: "group",
               label: "Article call to action",
               fields: [
-                { name: "visible", type: "checkbox", defaultValue: true },
+                {
+                  name: "visible",
+                  type: "checkbox",
+                  localized: true,
+                  defaultValue: true,
+                  admin: { description: "Show the article call to action for the selected locale." },
+                },
                 label("eyebrow", ARTICLE_CTA_COPY.eyebrow.en),
                 label("title", ARTICLE_CTA_COPY.title.en),
                 label("label", ARTICLE_CTA_COPY.label.en),

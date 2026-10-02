@@ -1,23 +1,12 @@
 #!/usr/bin/env node
 /**
- * Reliable entry point for the Payload CLI (`npm run migrate`, `seed`, ...).
+ * Supervised entry point for the Payload CLI.
  *
- * Observed behavior on this project (Payload 3.90.2, tsx 4.22.4, Node 22.16,
- * Windows 11): roughly 1 in 4 invocations of the stock `payload` bin produce
- * no output at all. Without a keep-alive the process then exits with code 0
- * having done nothing (e.g. `migrate` reported success but applied nothing;
- * `generate:types` wrote no file). With a keep-alive the same runs hang.
- * A Node diagnostic report captured from one stalled run showed no sockets
- * and no child processes — only a worker thread — and nothing had been
- * printed, so no database work had started. The root cause has NOT been
- * confirmed; module loading through tsx's loader hooks is a suspicion only.
- *
- * This wrapper runs the CLI in a child process with inherited stdio (TTY
- * prompts keep working). If the child prints nothing within the startup
- * window, it has not touched the database yet, so it is killed and retried
- * (up to 3 attempts). Once output starts, the child's exit code is returned
- * unchanged. A stall is therefore either retried safely or reported as a
- * failure — never a false success or an endless hang.
+ * Console output cannot prove whether command execution has begun: legitimate
+ * work may be slow and silent. The child therefore sends an acknowledged IPC
+ * signal after module preparation and immediately before invoking bin().
+ * Automatic retries are limited to that explicitly pre-execution stage. Once
+ * the boundary is crossed, a mutating command is never retried automatically.
  */
 import { spawn } from "node:child_process"
 import fs from "node:fs"
@@ -25,6 +14,7 @@ import { createRequire } from "node:module"
 import path from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
+const EXECUTION_BOUNDARY = "payload-cli:execution-boundary"
 const self = fileURLToPath(import.meta.url)
 const args = process.argv.slice(2)
 
@@ -34,56 +24,96 @@ if (process.env.INHERITIX_PAYLOAD_CHILD === "1") {
   await supervise()
 }
 
+function isMutatingCommand(commandArgs) {
+  const command = commandArgs[0]
+  return !["migrate:status", "generate:types", "generate:importmap"].includes(command)
+}
+
 async function supervise() {
   const startupMs = Number(process.env.PAYLOAD_CLI_STARTUP_MS || 45_000)
   const attempts = 3
+  const mutating = isMutatingCommand(args)
+
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     const child = spawn(process.execPath, [self, ...args], {
       stdio: ["inherit", "inherit", "inherit", "ipc"],
       env: { ...process.env, INHERITIX_PAYLOAD_CHILD: "1" },
     })
-    let started = false
-    let stalled = false
+    let stage = "pre-execution"
+    let preparationTimedOut = false
+    let timer
+
     child.on("message", (message) => {
-      if (message === "started") started = true
+      if (message === EXECUTION_BOUNDARY) {
+        stage = "execution"
+        clearTimeout(timer)
+      }
     })
-    const timer = setTimeout(() => {
-      if (!started) {
-        stalled = true
+
+    timer = setTimeout(() => {
+      if (stage === "pre-execution") {
+        preparationTimedOut = true
         child.kill()
       }
     }, startupMs)
-    const code = await new Promise((resolve) => child.on("exit", (exitCode) => resolve(exitCode)))
+
+    const { code, signal } = await new Promise((resolve) =>
+      child.on("exit", (exitCode, exitSignal) => resolve({ code: exitCode, signal: exitSignal })),
+    )
     clearTimeout(timer)
-    if (!stalled) process.exit(code ?? 1)
+
+    if (stage === "execution") {
+      if (mutating && (code !== 0 || signal)) {
+        console.error(
+          "Payload command crossed the execution boundary and did not complete successfully. Its database outcome may be indeterminate; do not retry it automatically. Run 'npm run migrate:status' and inspect the database before deciding whether to retry.",
+        )
+      }
+      process.exit(code ?? 1)
+    }
+
+    const reason = preparationTimedOut
+      ? "pre-execution preparation exceeded " + startupMs / 1000 + "s"
+      : "child exited before the execution boundary (code " +
+        (code ?? "none") +
+        (signal ? ", signal " + signal : "") +
+        ")"
     console.error(
-      `Payload CLI stalled while loading (no output after ${startupMs / 1000}s, nothing executed) — attempt ${attempt}/${attempts}${attempt < attempts ? ", retrying" : ""}.`,
+      "Payload CLI " +
+        reason +
+        " — attempt " +
+        attempt +
+        "/" +
+        attempts +
+        (attempt < attempts ? "; safe to retry because bin() was not invoked" : "") +
+        ".",
     )
   }
-  console.error("Payload CLI failed to start after 3 attempts.")
+
+  console.error("Payload CLI could not reach the execution boundary after 3 attempts; no CLI command was invoked.")
   process.exit(1)
 }
 
-async function runPayloadCli() {
-  // Tell the supervisor the CLI is alive as soon as anything is written.
-  for (const stream of [process.stdout, process.stderr]) {
-    const write = stream.write.bind(stream)
-    stream.write = (...writeArgs) => {
-      if (process.connected) process.send?.("started")
-      return write(...writeArgs)
-    }
+async function signalExecutionBoundary() {
+  if (!process.connected || !process.send) {
+    throw new Error("Payload CLI child has no IPC channel for the execution-boundary signal.")
   }
-  process.on("unhandledRejection", (error) => {
-    console.error(error)
-    process.exit(1)
+  await new Promise((resolve, reject) => {
+    process.send(EXECUTION_BOUNDARY, (error) => (error ? reject(error) : resolve()))
   })
-  // Payload always finishes with an explicit process.exit(); keep the loop
-  // alive until then so a slow loader cannot end the process early.
-  setInterval(() => {}, 1 << 30)
+}
+
+async function loadPayloadBin() {
+  // Test-only injection exercises supervision without loading Payload.
+  if (process.env.INHERITIX_PAYLOAD_CLI_TEST_MODULE) {
+    if (process.env.NODE_ENV !== "test") {
+      throw new Error("INHERITIX_PAYLOAD_CLI_TEST_MODULE is available only with NODE_ENV=test.")
+    }
+    return import(process.env.INHERITIX_PAYLOAD_CLI_TEST_MODULE)
+  }
 
   const projectRoot = path.resolve(path.dirname(self), "..")
   const payloadDir = fs.realpathSync(path.join(projectRoot, "node_modules", "payload"))
-  const payloadUrl = `${pathToFileURL(payloadDir).href}/`
+  const payloadUrl = pathToFileURL(payloadDir).href + "/"
   // Same guard as Payload's bin.js: tsx's sync-hooks path is broken on Node >= 23.5.
   const [major, minor] = process.versions.node.split(".").map(Number)
   if (major > 23 || (major === 23 && minor >= 5)) {
@@ -92,7 +122,23 @@ async function runPayloadCli() {
   }
   const tsxApi = pathToFileURL(createRequire(path.join(payloadDir, "bin.js")).resolve("tsx/esm/api")).href
   const { tsImport } = await import(tsxApi)
-  const { bin } = await tsImport("./dist/bin/index.js", payloadUrl)
-  // bin() reads the command from process.argv[2...], exactly as `payload <cmd>`.
+  return tsImport("./dist/bin/index.js", payloadUrl)
+}
+
+async function runPayloadCli() {
+  process.on("unhandledRejection", (error) => {
+    console.error(error)
+    process.exit(1)
+  })
+  // Keep the loop alive during preparation so an early event-loop drain is
+  // reported as a preparation timeout rather than false success.
+  setInterval(() => {}, 1 << 30)
+
+  const { bin } = await loadPayloadBin()
+  if (typeof bin !== "function") throw new TypeError("Payload CLI module did not export bin().")
+
+  // This acknowledged signal is independent of stdout/stderr and is sent
+  // immediately before command execution can begin.
+  await signalExecutionBoundary()
   await bin()
 }

@@ -42,8 +42,9 @@ function link(name: string, label: string, href: string): Field {
 const visible: Field = {
   name: "visible",
   type: "checkbox",
+  localized: true,
   defaultValue: true,
-  admin: { description: "Show this section on the homepage." },
+  admin: { description: "Show this section for the selected locale." },
 }
 
 export const HomePage: GlobalConfig = {
@@ -190,7 +191,13 @@ export const HomePage: GlobalConfig = {
                   type: "group",
                   admin: { description: "Capability story card next to the product card." },
                   fields: [
-                    { name: "visible", type: "checkbox", defaultValue: true },
+                    {
+                      name: "visible",
+                      type: "checkbox",
+                      localized: true,
+                      defaultValue: true,
+                      admin: { description: "Show this story card for the selected locale." },
+                    },
                     {
                       name: "source",
                       type: "select",

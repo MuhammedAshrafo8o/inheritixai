@@ -28,6 +28,10 @@ import type {
  * - Drafts are served only when Next draft mode is on AND the request still
  *   carries a valid admin/editor Payload session (rechecked on every render, so
  *   logging out immediately ends draft visibility).
+ * - Exact-locale reads keep intentionally empty optional fields empty. Arabic
+ *   collection records fall back to their whole English record only when their
+ *   required translation marker is absent; metadata then uses the existing
+ *   English canonical + noindex behavior.
  * - Missing content returns null/[] (→ 404 or empty state). Database or query
  *   failures throw ContentInfrastructureError (→ logged, HTTP 500) and are never
  *   converted into placeholder content.
@@ -92,7 +96,13 @@ async function accessArgs() {
 function globalReader<T>(slug: Parameters<Payload["findGlobal"]>[0]["slug"]) {
   return cache(async (locale: Locale): Promise<T> =>
     run(`global ${slug} (${locale})`, async (payload) =>
-      (await payload.findGlobal({ slug, locale, depth: 2, overrideAccess: false })) as T,
+      (await payload.findGlobal({
+        slug,
+        locale,
+        fallbackLocale: false,
+        depth: 2,
+        overrideAccess: false,
+      })) as T,
     ),
   )
 }
@@ -109,18 +119,80 @@ export const getSiteLabels = globalReader<SiteLabel>("site-labels")
 
 type RoutableSlug = "services" | "products" | "projects" | "posts"
 
+const TITLE_FIELD: Record<RoutableSlug, string> = {
+  projects: "title",
+  posts: "title",
+  services: "title",
+  products: "tagline",
+}
+
+function hasOwnTranslation(collection: RoutableSlug, doc: Record<string, unknown> | null | undefined) {
+  const value = doc?.[TITLE_FIELD[collection]]
+  return typeof value === "string" && value.trim().length > 0
+}
+
+/**
+ * Candidate list queries explicitly allow English so untranslated records keep
+ * their established Arabic-route fallback. Records with an Arabic translation
+ * marker are replaced with exact Arabic reads, so empty optional Arabic fields
+ * are never filled from English.
+ */
+async function preferExactTranslations<T extends { id: number | string }>(
+  payload: Payload,
+  collection: RoutableSlug,
+  locale: Locale,
+  docs: T[],
+  depth: number,
+  access: Awaited<ReturnType<typeof accessArgs>>,
+): Promise<T[]> {
+  if (locale !== "ar" || docs.length === 0) return docs
+  const exact = await payload.find({
+    collection,
+    locale,
+    fallbackLocale: false,
+    where: { id: { in: docs.map((doc) => doc.id) } },
+    pagination: false,
+    depth,
+    ...access,
+  })
+  const byId = new Map((exact.docs as unknown as T[]).map((doc) => [String(doc.id), doc]))
+  return docs.map((fallbackDoc) => {
+    const own = byId.get(String(fallbackDoc.id))
+    return own && hasOwnTranslation(collection, own as unknown as Record<string, unknown>)
+      ? own
+      : fallbackDoc
+  })
+}
+
 async function findBySlug<T>(collection: RoutableSlug, slug: string, locale: Locale): Promise<T | null> {
   const access = await accessArgs()
   return run(`${collection} "${slug}" (${locale})`, async (payload) => {
     const result = await payload.find({
       collection,
       locale,
+      fallbackLocale: false,
       where: { slug: { equals: slug } },
       limit: 1,
       depth: 2,
       ...access,
     })
-    return (result.docs[0] as T | undefined) ?? null
+    const exact = (result.docs[0] as T | undefined) ?? null
+    if (
+      locale === "ar" &&
+      !hasOwnTranslation(collection, exact as unknown as Record<string, unknown> | null)
+    ) {
+      const english = await payload.find({
+        collection,
+        locale: "en",
+        fallbackLocale: false,
+        where: { slug: { equals: slug } },
+        limit: 1,
+        depth: 2,
+        ...access,
+      })
+      return (english.docs[0] as T | undefined) ?? null
+    }
+    return exact
   })
 }
 
@@ -143,12 +215,13 @@ export const getPublishedServices = cache(async (locale: Locale) => {
     const result = await payload.find({
       collection: "services",
       locale,
+      fallbackLocale: locale === "ar" ? "en" : false,
       sort: "displayOrder",
       pagination: false,
       depth: 1,
       ...access,
     })
-    return result.docs
+    return preferExactTranslations(payload, "services", locale, result.docs, 1, access)
   })
 })
 
@@ -158,12 +231,13 @@ export const getPublishedProducts = cache(async (locale: Locale) => {
     const result = await payload.find({
       collection: "products",
       locale,
+      fallbackLocale: locale === "ar" ? "en" : false,
       sort: "displayOrder",
       pagination: false,
       depth: 1,
       ...access,
     })
-    return result.docs
+    return preferExactTranslations(payload, "products", locale, result.docs, 1, access)
   })
 })
 
@@ -173,12 +247,13 @@ export const getPublishedPosts = cache(async (locale: Locale, limit = 12) => {
     const result = await payload.find({
       collection: "posts",
       locale,
+      fallbackLocale: locale === "ar" ? "en" : false,
       sort: "-publishedAt",
       limit,
       depth: 1,
       ...access,
     })
-    return result.docs
+    return preferExactTranslations(payload, "posts", locale, result.docs, 1, access)
   })
 })
 
@@ -209,6 +284,7 @@ export async function getPublishedProjects(
       payload.find({
         collection: "projects",
         locale,
+        fallbackLocale: locale === "ar" ? "en" : false,
         where,
         sort: "displayOrder",
         page,
@@ -219,15 +295,17 @@ export async function getPublishedProjects(
       payload.find({
         collection: "projects",
         locale,
+        fallbackLocale: locale === "ar" ? "en" : false,
         pagination: false,
         depth: 0,
         select: { sector: true },
         ...access,
       }),
     ])
+    const docs = await preferExactTranslations(payload, "projects", locale, result.docs, 1, access)
     const sectors = [...new Set(all.docs.map((doc) => doc.sector).filter(Boolean))] as string[]
     return {
-      docs: result.docs as ProjectListing["docs"],
+      docs: docs as ProjectListing["docs"],
       totalDocs: result.totalDocs,
       totalPages: Math.max(1, result.totalPages),
       page: result.page ?? 1,
@@ -256,24 +334,18 @@ export const getFeaturedProjects = cache(async (locale: Locale, limit = 3) => {
     const result = await payload.find({
       collection: "projects",
       locale,
+      fallbackLocale: locale === "ar" ? "en" : false,
       where: { featured: { equals: true } },
       sort: "displayOrder",
       limit,
       depth: 1,
       ...access,
     })
-    return result.docs
+    return preferExactTranslations(payload, "projects", locale, result.docs, 1, access)
   })
 })
 
 // ─── Translation availability (hreflang) ────────────────────────────────────
-
-const TITLE_FIELD: Record<RoutableSlug, string> = {
-  projects: "title",
-  posts: "title",
-  services: "title",
-  products: "tagline",
-}
 
 /**
  * Which locales have their own (non-fallback) content for a record. Used so

@@ -57,7 +57,7 @@ npm run migrate:status   # list applied / pending migrations
 npm run migrate:create <name>   # after changing collections/globals: generate a migration from the config
 npm run migrate:check    # drift check: creates a "drift_check" migration only if config and migrations differ
 ```
-All Payload CLI commands run through `scripts/payload.mjs`, which guards against an observed intermittent startup stall of the stock Payload 3.90.2 CLI on this Node 22/Windows setup (the stock bin sometimes exited 0 without doing anything; root cause unconfirmed). Do not call `npx payload migrate` directly in CI.
+All Payload CLI commands run through `scripts/payload.mjs`, which guards against an observed intermittent startup stall of the stock Payload 3.90.2 CLI on this Node 22/Windows setup (root cause unconfirmed). The child sends an acknowledged IPC execution-boundary signal immediately before invoking the CLI command. Automatic retries are allowed only before that boundary; console silence is never used as proof that execution has not started. After the boundary, a failed mutating command has an indeterminate outcome and must be followed by `npm run migrate:status` plus database inspection before any manual retry. Do not call `npx payload migrate` directly in CI.
 
 ### 5. Accounts and Content Seed
 Create or rotate CMS accounts — credentials come from the environment (`INHERITIX_ADMIN_*`, `INHERITIX_EDITOR_*`) or an interactive hidden prompt. There are no default passwords and nothing secret is printed:
@@ -131,6 +131,7 @@ npm run start
 ## Engineering Rules (Milestone Two)
 
 - **Public data access** goes through `src/cms/queries.ts`: every Local API call uses `overrideAccess: false`. Drafts are served only when Next draft mode is on *and* the request carries a valid admin/editor session (rechecked per render).
+- **Localization**: public reads request exact locale values so an intentionally empty optional field remains empty. Arabic collection pages use English as an explicit whole-record fallback only when their required translation marker is absent; those fallback pages remain `noindex` with an English canonical and advertise only available translations.
 - **Failures are not content**: database/query errors throw `ContentInfrastructureError` (logged, HTTP 500). Never return placeholder content on error. Sample project fixtures appear only with `INHERITIX_DEV_FIXTURES=true` outside production.
 - **Cache invalidation** is handled by collection/global hooks in `src/payload/hooks/revalidate.ts`; slug changes of *published* records create flattened 308 redirects (`src/payload/hooks/slugRedirects.ts`).
 - **Rich text** renders through `src/components/ui/RichTextContent.tsx` (Payload's Lexical renderer). After adding fields with custom admin components run `npm run generate:importmap` and `npm run generate:types`.

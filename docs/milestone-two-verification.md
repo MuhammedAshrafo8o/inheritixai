@@ -32,6 +32,8 @@ Full suite: **83/83** on a freshly migrated + seeded database (`integration-chec
 
 Content-controls follow-up (same day, see the dedicated section below): focused checks **26/26** (`content-controls-check.log`) and the full suite re-run **88/88** on the updated build (`integration-check-content-controls.log`).
 
+Independent-localization and CLI-safety correction (same branch, starting from `4bc01a27fc91b9123bb1da5a5c27407bef83dd23`): focused content checks **31/31**, migration preservation check **passed**, wrapper regression checks **3/3**, typecheck **passed**, and production build **passed**. The broad 88-case suite was not repeated because the correction affects localized reads/visibility controls and CLI supervision; the affected database and HTTP paths were exercised directly.
+
 ## Commands and exact results
 
 | Command | Result |
@@ -48,12 +50,18 @@ Content-controls follow-up (same day, see the dedicated section below): focused 
 | `npm run bootstrap:users` with a simulated legacy-default admin | exit 2, account locked (`passwordRotationRequired = t`) |
 | `npm run bootstrap:users` with credentials | exit 0, admin password replaced, editor created |
 | Env validation (placeholder secret / production missing values) | `EnvironmentConfigError` listing each problem |
-| Payload CLI stress (`migrate:status` ×15 via wrapper) | 15/15 correct, 3 startup stalls auto-retried |
+| Legacy Payload CLI stress (`migrate:status` ×15 via the original wrapper) | historical result only; its output-based retry assumption was removed by the execution-boundary correction below |
 | `npm run migrate` (content controls) on the populated DB | `20261002_083916_content_controls` migrated (1500 ms); a legacy `301` redirect converted to `308`; starter copy stored in EN/AR only where content had relied on code fallbacks; record counts unchanged (pg_dump backup taken first, kept outside the repo) |
 | `npm run migrate` + `npm run seed` on a new empty DB | all 3 migrations applied; seed created 28 records/globals including the new fields in both locales; database dropped afterwards |
 | `npm run test:content-controls` | 26/26 passed |
 | `npm run test:integration` (after content controls) | 88/88 passed |
 | `npm run seed` (rerun after content controls) | exit 0, 0 created, 24 kept |
+| `npm run test:payload-wrapper` | 3/3 passed: slow silent execution ran once; only pre-execution preparation retried; post-boundary mutating failure ran once and required migration-status inspection |
+| `npm run test:localized-visibility-db -- capture` / `-- verify` | captured the populated DB state; after migration every homepage/story visibility value and article CTA visibility matched in both `en` and `ar` |
+| `npm run migrate` (localized visibility controls) | `20261002_093640_localized_visibility_controls` migrated (83 ms) |
+| `npm run test:content-controls` (localization correction) | 31/31 passed |
+| `npm run typecheck` (localization correction) | exit 0 |
+| `npm run build` (localization correction) | exit 0 — compiled successfully, 22 static pages generated |
 
 ### Database outage (PostgreSQL stopped under the running server)
 
@@ -88,6 +96,20 @@ Focused results (`content-controls-check.log`, 26/26): CMS labels appear and the
 
 Verification incident (data, not code): the first focused run accidentally targeted the previous build still listening on port 8443. That older build, unaware of the new columns, rewrote the locale rows of two globals, and PostgreSQL refilled the new columns in the Arabic rows with their English column defaults. The backfill was re-applied and every check re-run against the correct build. Operational rule added to AGENTS.md: deploy the matching build together with its migrations.
 
+## Independent localization and safe CLI correction
+
+| Requirement | Verified implementation |
+|---|---|
+| Arabic optional content stays intentionally empty | All public global reads use `fallbackLocale: false`. Collection reads use exact localized documents whenever the required translation marker exists, so optional Arabic fields are not repopulated from English. |
+| Explicit untranslated-content fallback | When an Arabic collection record has no required translation marker, `src/cms/queries.ts` explicitly returns the whole English record. `getTranslatedLocales` still reports only real translations, so the Arabic URL remains `noindex`, canonicals to English, and omits an Arabic hreflang. |
+| Independent section/CTA controls | Homepage section visibility (seven sections), homepage story-card visibility, and article CTA visibility are localized. The generated migration copies each former shared value into every existing English and Arabic locale row before dropping the shared column. |
+| Migration preservation | `test:localized-visibility-db` captured the populated database before migration and verified every copied value in both locales afterward. |
+| Focused editor behavior | `test:content-controls` clears an Arabic optional label, hides the Arabic article CTA, and hides the Arabic homepage Insights section; it proves the English values remain visible and unchanged, then restores every edit. It also verifies the explicit untranslated article fallback's English canonical and `noindex`. Result: **31/31 passed**. |
+| CLI execution boundary | `scripts/payload.mjs` no longer treats stdout/stderr as a startup signal. The child sends an acknowledged IPC boundary immediately before `bin()`; only preparation timeouts before that boundary are retried. A mutating failure after the boundary is never retried and reports an indeterminate outcome requiring `npm run migrate:status` and database inspection. |
+| Slow silent execution | `test:payload-wrapper` holds a fixture command silent for three times the preparation timeout after the boundary and proves it executes exactly once. Separate fixtures prove pre-boundary retry and post-boundary no-retry/status guidance. |
+
+During verification, the first `migrate:create` invocation crossed the execution boundary and was then terminated by the external 122-second command ceiling. It was not retried by the wrapper. No migration file existed; `npm run migrate:status` confirmed the three prior migrations were applied before a deliberate manual retry generated the new migration successfully. This is the intended indeterminate-outcome workflow.
+
 ## Field-to-rendered-element checklist
 
 Legend: ✅ rendered from CMS · ⚙️ behavioral (affects output, not displayed) · ⛔ exception (see below)
@@ -117,7 +139,7 @@ Legend: ✅ rendered from CMS · ⚙️ behavioral (affects output, not displaye
 | heroIndex, heroTitleA, heroTitleB, heroCopy | Hero ✅ |
 | heroPrimaryCta / heroSecondaryCta (label, href) | Hero links ✅ |
 | sectionOrder | Order of the seven sections ✅ |
-| *.visible (7 sections + story card) | Section shown/hidden ✅ |
+| *.visible (7 sections + story card, localized) | Section shown/hidden independently for English and Arabic ✅ |
 | showcaseSection.stageLabel/stageNote | Product stage labels ✅ |
 | selectedWorkSection.label/title | Section head ✅ |
 | featuredProduct / secondaryProduct (+ eyebrows, productCtaLabel) | Feature + mini product cards (name, summary, mockup by visualType) ✅ |
@@ -140,7 +162,7 @@ Legend: ✅ rendered from CMS · ⚙️ behavioral (affects output, not displaye
 | Labels — buttons: viewProject, explore, readStory, seeService, requestDemo, discussProject, allProjects, previousPage, nextPage | Buttons and pagination ✅ (exploreWork, startProject, viewProduct are kept for editors; homepage/header CTAs use their own fields and never fall back to them) |
 | Labels — navigation & accessibility: backToTop, skipToContent, changeLanguage, languageToggle, mainNavigation, openMenu, closeMenu | Back-to-top, skip link, language switch text and aria label, nav and menu aria labels ✅ |
 | Labels — projects: sector, services, year, technology, visitClientSite, relatedProjectsLabel/Title, projectList, filterProjects, projectPages, draftPreview, draftPreviewNote | Project facts, client link, related section, listing aria labels, editor draft notice ✅ |
-| Labels — articles: contents, moreInsightsLabel/Title, articleCta (visible, eyebrow, title, label, href) | Article TOC heading, more-insights head, article CTA ✅ |
+| Labels — articles: contents, moreInsightsLabel/Title, articleCta (localized visible, eyebrow, title, label, href) | Article TOC heading, more-insights head, article CTA; visibility is independent by locale ✅ |
 | Labels — services & products: serviceKicker, onThisPage, problemNav, deliverablesNav, processNav, nextStepNav, coreWorkflow, interfaceTour, interfaceTourTitle, faq, faqTitle | Service hero kicker and page nav; product section heads ✅ |
 | Labels — error pages: notFoundEyebrow/Title/Body/Link, errorEyebrow/Title/Body/Retry | 404 page and its `<title>`; 500 views (loaded client-side) ✅ |
 
@@ -161,10 +183,10 @@ Legend: ✅ rendered from CMS · ⚙️ behavioral (affects output, not displaye
 2. **500 message when the CMS is unreachable** — the 500 views load the editable Site Labels copy from the public API. When the CMS itself cannot answer (the usual cause of a 500), a minimal built-in message is shown instead ("This page couldn’t be loaded. Please try again shortly." or its Arabic equivalent) with the error reference.
 3. **Development-fixture notice** — shown only with `INHERITIX_DEV_FIXTURES=true` outside production; its wording stays in code.
 4. **`products.category`, `media.description`, `media.caption`, `authors.bio`** — stored editorial metadata with no place in the approved design; not rendered.
-5. **Intentionally empty Arabic values** — localization fallback is enabled, so an Arabic field left empty shows the English value (Payload behavior). To hide an element on the Arabic site, clear it in English as well, or use a section toggle where one exists.
+5. **Intentional untranslated-record fallback** — exact-locale reads preserve intentionally empty Arabic optional fields. Only a record with no Arabic required translation marker explicitly falls back as a whole to English; that Arabic URL is `noindex`, canonicals to English, and advertises only its available translations.
 6. **Story card default link** changed from `/projects/operations-platform` (an unapproved sample, now a draft → 404) to `/services/custom-software`.
 7. **Statically generated pages during a DB outage** keep serving their last successful render (ISR); dynamic pages return 500.
-8. **Payload CLI startup stall (observed behavior)** — on this machine (Payload 3.90.2, tsx 4.22.4, Node 22.16, Windows 11) roughly 1 in 4 invocations of the stock `payload` bin printed nothing: some exited 0 having done nothing (one `migrate` and one `generate:types` were silently skipped), and others hung when the process was kept alive. A diagnostic report from one stalled run showed no sockets or child processes and nothing printed. The root cause has **not** been confirmed. `scripts/payload.mjs` retries runs that stall before producing any output (no database work has started at that point) and otherwise passes exit codes through.
+8. **Payload CLI startup stall (observed behavior)** — on this machine (Payload 3.90.2, tsx 4.22.4, Node 22.16, Windows 11) the stock `payload` bin can stall during startup; the root cause remains unconfirmed. Console silence is not evidence that database work has not begun. `scripts/payload.mjs` now uses an acknowledged IPC execution boundary immediately before `bin()`, retries only preparation timeouts before that boundary, and never automatically retries a mutating command afterward. An abnormal post-boundary outcome requires `npm run migrate:status` and database inspection.
 9. **PostgreSQL version** — verified on 14.18 (16 is not available locally without Docker).
 10. **Contact form persistence and email delivery** remain Milestone Three, as instructed.
 
