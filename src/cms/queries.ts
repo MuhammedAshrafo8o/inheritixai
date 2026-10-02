@@ -135,7 +135,9 @@ function hasOwnTranslation(collection: RoutableSlug, doc: Record<string, unknown
  * Candidate list queries explicitly allow English so untranslated records keep
  * their established Arabic-route fallback. Records with an Arabic translation
  * marker are replaced with exact Arabic reads, so empty optional Arabic fields
- * are never filled from English.
+ * are never filled from English. Records missing their Arabic translation
+ * marker are replaced with exact English reads (fallbackLocale: false), so
+ * populated optional Arabic fields never leak into untranslated English fallbacks.
  */
 async function preferExactTranslations<T extends { id: number | string }>(
   payload: Payload,
@@ -155,12 +157,42 @@ async function preferExactTranslations<T extends { id: number | string }>(
     depth,
     ...access,
   })
-  const byId = new Map((exact.docs as unknown as T[]).map((doc) => [String(doc.id), doc]))
+  const arById = new Map((exact.docs as unknown as T[]).map((doc) => [String(doc.id), doc]))
+
+  const missingIds = [
+    ...new Set(
+      docs
+        .filter((doc) => {
+          const own = arById.get(String(doc.id))
+          return !own || !hasOwnTranslation(collection, own as unknown as Record<string, unknown>)
+        })
+        .map((doc) => doc.id),
+    ),
+  ]
+
+  const enById = new Map<string, T>()
+  if (missingIds.length > 0) {
+    const english = await payload.find({
+      collection,
+      locale: "en",
+      fallbackLocale: false,
+      where: { id: { in: missingIds } },
+      pagination: false,
+      depth,
+      ...access,
+    })
+    for (const doc of english.docs as unknown as T[]) {
+      enById.set(String(doc.id), doc)
+    }
+  }
+
   return docs.map((fallbackDoc) => {
-    const own = byId.get(String(fallbackDoc.id))
-    return own && hasOwnTranslation(collection, own as unknown as Record<string, unknown>)
-      ? own
-      : fallbackDoc
+    const id = String(fallbackDoc.id)
+    const own = arById.get(id)
+    if (own && hasOwnTranslation(collection, own as unknown as Record<string, unknown>)) {
+      return own
+    }
+    return enById.get(id) ?? fallbackDoc
   })
 }
 

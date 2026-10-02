@@ -3,10 +3,11 @@
  * Supervised entry point for the Payload CLI.
  *
  * Console output cannot prove whether command execution has begun: legitimate
- * work may be slow and silent. The child therefore sends an acknowledged IPC
- * signal after module preparation and immediately before invoking bin().
+ * work may be slow and silent. The child therefore sends a ready-to-execute
+ * message and waits for an explicit parent acknowledgment before calling bin().
  * Automatic retries are limited to that explicitly pre-execution stage. Once
- * the boundary is crossed, a mutating command is never retried automatically.
+ * acknowledgment may have been delivered, execution is marked as potentially
+ * started and the command is never retried automatically.
  */
 import { spawn } from "node:child_process"
 import fs from "node:fs"
@@ -14,7 +15,8 @@ import { createRequire } from "node:module"
 import path from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
-const EXECUTION_BOUNDARY = "payload-cli:execution-boundary"
+const READY_TO_EXECUTE = "payload-cli:ready-to-execute"
+const ACKNOWLEDGE_EXECUTION = "payload-cli:acknowledge-execution"
 const self = fileURLToPath(import.meta.url)
 const args = process.argv.slice(2)
 
@@ -43,10 +45,35 @@ async function supervise() {
     let preparationTimedOut = false
     let timer
 
-    child.on("message", (message) => {
-      if (message === EXECUTION_BOUNDARY) {
+    child.on("message", async (message) => {
+      if (message === READY_TO_EXECUTE) {
+        // If preparation has already timed out, never acknowledge that attempt.
+        if (preparationTimedOut) {
+          return
+        }
+
+        // Before acknowledging, the parent marks execution as potentially started
+        // and cancels the preparation timeout.
         stage = "execution"
         clearTimeout(timer)
+
+        if (
+          process.env.NODE_ENV === "test" &&
+          (process.env.PAYLOAD_WRAPPER_FIXTURE_SCENARIO === "delayed-acknowledgment" ||
+            process.env.PAYLOAD_WRAPPER_FIXTURE_SCENARIO === "delayed-ack")
+        ) {
+          const ackDelay = Number(process.env.PAYLOAD_WRAPPER_FIXTURE_ACK_DELAY_MS || 120)
+          await new Promise((resolve) => setTimeout(resolve, ackDelay))
+        }
+
+        // Once acknowledgment may have been delivered, never automatically retry that attempt.
+        if (child.connected) {
+          child.send(ACKNOWLEDGE_EXECUTION, (error) => {
+            if (error) {
+              // IPC send error: stage is already "execution", preventing retries.
+            }
+          })
+        }
       }
     })
 
@@ -93,12 +120,45 @@ async function supervise() {
   process.exit(1)
 }
 
-async function signalExecutionBoundary() {
+async function requestExecutionPermission() {
   if (!process.connected || !process.send) {
-    throw new Error("Payload CLI child has no IPC channel for the execution-boundary signal.")
+    throw new Error("Payload CLI child has no IPC channel for execution permission.")
   }
-  await new Promise((resolve, reject) => {
-    process.send(EXECUTION_BOUNDARY, (error) => (error ? reject(error) : resolve()))
+
+  return new Promise((resolve, reject) => {
+    let settled = false
+
+    const cleanup = () => {
+      process.removeListener("message", onMessage)
+      process.removeListener("disconnect", onDisconnect)
+    }
+
+    const onMessage = (message) => {
+      if (message === ACKNOWLEDGE_EXECUTION) {
+        settled = true
+        cleanup()
+        resolve()
+      }
+    }
+
+    const onDisconnect = () => {
+      if (!settled) {
+        settled = true
+        cleanup()
+        reject(new Error("Parent IPC disconnected before execution acknowledgment was received."))
+      }
+    }
+
+    process.on("message", onMessage)
+    process.on("disconnect", onDisconnect)
+
+    process.send(READY_TO_EXECUTE, (error) => {
+      if (error) {
+        settled = true
+        cleanup()
+        reject(error)
+      }
+    })
   })
 }
 
@@ -130,15 +190,20 @@ async function runPayloadCli() {
     console.error(error)
     process.exit(1)
   })
-  // Keep the loop alive during preparation so an early event-loop drain is
-  // reported as a preparation timeout rather than false success.
+  // Keep the loop alive during preparation and CLI execution so an early event-loop drain
+  // is reported as a preparation timeout rather than false success.
   setInterval(() => {}, 1 << 30)
 
-  const { bin } = await loadPayloadBin()
-  if (typeof bin !== "function") throw new TypeError("Payload CLI module did not export bin().")
+  try {
+    const { bin } = await loadPayloadBin()
+    if (typeof bin !== "function") throw new TypeError("Payload CLI module did not export bin().")
 
-  // This acknowledged signal is independent of stdout/stderr and is sent
-  // immediately before command execution can begin.
-  await signalExecutionBoundary()
-  await bin()
+    // The child sends a ready-to-execute message and waits for an explicit parent
+    // acknowledgment before calling bin().
+    await requestExecutionPermission()
+    await bin()
+  } catch (error) {
+    console.error(error)
+    process.exit(1)
+  }
 }

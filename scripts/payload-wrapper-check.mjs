@@ -18,8 +18,9 @@ function run(scenario, command = "migrate") {
       env: {
         ...process.env,
         NODE_ENV: "test",
-        PAYLOAD_CLI_STARTUP_MS: "80",
-        PAYLOAD_WRAPPER_FIXTURE_DELAY_MS: "240",
+        PAYLOAD_CLI_STARTUP_MS: "120",
+        PAYLOAD_WRAPPER_FIXTURE_DELAY_MS: "360",
+        PAYLOAD_WRAPPER_FIXTURE_ACK_DELAY_MS: "180",
         PAYLOAD_WRAPPER_FIXTURE_SCENARIO: scenario,
         PAYLOAD_WRAPPER_FIXTURE_COUNTER: counter,
         INHERITIX_PAYLOAD_CLI_TEST_MODULE: fixture,
@@ -53,6 +54,12 @@ try {
   assert.match(preExecution.stderr, /safe to retry because bin\(\) was not invoked/)
   console.log("PASS retries are limited to the identified pre-execution preparation stage")
 
+  const delayedAck = await run("delayed-acknowledgment")
+  assert.equal(delayedAck.code, 0)
+  assert.equal(delayedAck.events.filter((event) => event === "execute").length, 1)
+  assert.doesNotMatch(delayedAck.stderr, /retry/i)
+  console.log("PASS delayed acknowledgment near preparation timeout cancels the timer and executes safely")
+
   const failed = await run("execution-failure")
   assert.equal(failed.code, 1)
   assert.equal(failed.events.filter((event) => event === "execute").length, 1)
@@ -62,3 +69,4 @@ try {
 } finally {
   fs.rmSync(tempDir, { recursive: true, force: true })
 }
+

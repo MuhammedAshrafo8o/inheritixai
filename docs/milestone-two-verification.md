@@ -34,6 +34,8 @@ Content-controls follow-up (same day, see the dedicated section below): focused 
 
 Independent-localization and CLI-safety correction (same branch, starting from `4bc01a27fc91b9123bb1da5a5c27407bef83dd23`): focused content checks **31/31**, migration preservation check **passed**, wrapper regression checks **3/3**, typecheck **passed**, and production build **passed**. The broad 88-case suite was not repeated because the correction affects localized reads/visibility controls and CLI supervision; the affected database and HTTP paths were exercised directly.
 
+Execution handshake and whole-record listing fallback correction (same branch, starting from `601ccb2cb9205e53fbffb0c807aa9a2fd657edad`): parent–child execution handshake in `scripts/payload.mjs` with explicit acknowledgment before invoking `bin()`, cancellation of preparation timeout, prevention of execution on missing acknowledgment/disconnect/timeout, and non-retry after acknowledgment delivery; genuine whole-record English listing fallback via `preferExactTranslations()` with `fallbackLocale: false` for records missing their Arabic translation marker; wrapper regression checks **4/4** (including delayed acknowledgment near the preparation timeout), focused content checks **32/32** (including untranslated record with populated Arabic optional field verified to use English on both listing card and detail page), typecheck **passed**, and production build **passed** (22 static pages generated).
+
 ## Commands and exact results
 
 | Command | Result |
@@ -62,6 +64,10 @@ Independent-localization and CLI-safety correction (same branch, starting from `
 | `npm run test:content-controls` (localization correction) | 31/31 passed |
 | `npm run typecheck` (localization correction) | exit 0 |
 | `npm run build` (localization correction) | exit 0 — compiled successfully, 22 static pages generated |
+| `npm run test:payload-wrapper` (handshake correction) | 4/4 passed: slow silent execution ran once; pre-execution preparation retried; delayed acknowledgment near preparation timeout cancels the timer and executes safely; post-boundary mutating failure ran once and required migration-status inspection |
+| `npm run test:content-controls` (handshake & whole-record fallback) | 32/32 passed: includes untranslated record with populated Arabic optional field verified to use English on both listing card and detail page |
+| `npm run typecheck` (handshake & whole-record fallback) | exit 0 |
+| `npm run build` (handshake & whole-record fallback) | exit 0 — compiled successfully in 107s, 22 static pages generated |
 
 ### Database outage (PostgreSQL stopped under the running server)
 
@@ -109,6 +115,17 @@ Verification incident (data, not code): the first focused run accidentally targe
 | Slow silent execution | `test:payload-wrapper` holds a fixture command silent for three times the preparation timeout after the boundary and proves it executes exactly once. Separate fixtures prove pre-boundary retry and post-boundary no-retry/status guidance. |
 
 During verification, the first `migrate:create` invocation crossed the execution boundary and was then terminated by the external 122-second command ceiling. It was not retried by the wrapper. No migration file existed; `npm run migrate:status` confirmed the three prior migrations were applied before a deliberate manual retry generated the new migration successfully. This is the intended indeterminate-outcome workflow.
+
+## Execution handshake and whole-record listing fallback correction
+
+| Requirement | Verified implementation |
+|---|---|
+| Parent–child execution handshake | `scripts/payload.mjs` child sends `payload-cli:ready-to-execute` and waits for explicit parent `payload-cli:acknowledge-execution` before invoking `bin()`. Missing acknowledgment, IPC disconnect, or parent failure prevents invoking `bin()`. |
+| Preparation timeout cancellation | Before acknowledging, the parent marks execution as potentially started (`stage = "execution"`) and cancels the preparation timeout (`clearTimeout(timer)`). If preparation has already timed out (`preparationTimedOut = true`), parent never acknowledges that attempt. |
+| Non-retry after acknowledgment | Once acknowledgment may have been delivered, execution is marked as potentially started (`stage = "execution"`), so mutating failures report an indeterminate outcome and are never automatically retried. |
+| Delayed acknowledgment regression check | `test:payload-wrapper` verifies delayed acknowledgment near/past the preparation timeout: the timer is cancelled before acknowledging, acknowledgment is delivered safely, and execution runs exactly once without retries (**4/4 passed**). |
+| Genuine whole-record English listing fallback | In `preferExactTranslations()` (`src/cms/queries.ts`), records missing their Arabic translation marker are fetched as exact English records with `fallbackLocale: false`. Listing order, pagination, access controls, and draft behavior are strictly preserved. Records with their own translation marker keep exact Arabic reads, preserving intentionally empty optional fields. |
+| Untranslated optional field isolation check | `test:content-controls` exercises an untranslated record with a populated Arabic optional field (`summary` and `intro`): verified that both its listing card (`/ar/projects`) and detail page (`/ar/projects/:slug`) use the English record without leaking the Arabic optional content (**32/32 passed**). |
 
 ## Field-to-rendered-element checklist
 

@@ -6,6 +6,10 @@
  *
  * Every value changed here is restored at the end (also on failure).
  */
+import { sql } from "@payloadcms/db-postgres"
+import { getPayload } from "payload"
+import config from "../src/payload.config"
+
 const BASE = (process.env.BASE_URL || "http://localhost:8443").replace(/\/+$/, "")
 const RUN = Date.now().toString(36)
 
@@ -99,6 +103,85 @@ async function main() {
     !localizedArticleAr.html.includes("context-link") &&
       localizedArticleEn.html.includes("English article CTA " + RUN),
   )
+
+  // ── Untranslated record with populated Arabic optional field uses English ──
+  const payload = await getPayload({ config })
+  const publishedProject = (
+    await payload.find({
+      collection: "projects",
+      where: { _status: { equals: "published" } },
+      limit: 1,
+      locale: "en",
+    })
+  ).docs[0]
+  if (publishedProject) {
+    const existingArRow = await payload.db.drizzle.execute(
+      sql.raw(`SELECT id, title, summary, intro FROM projects_locales WHERE _parent_id = ${publishedProject.id} AND _locale = 'ar'`),
+    )
+    const hadArRow = ((existingArRow as any).rows ?? existingArRow).length > 0
+    const originalAr = hadArRow ? ((existingArRow as any).rows ?? existingArRow)[0] : null
+
+    restore.unshift(async () => {
+      if (hadArRow && originalAr) {
+        await payload.db.drizzle.execute(
+          sql.raw(
+            `UPDATE projects_locales SET title = ${originalAr.title ? `'${originalAr.title}'` : "NULL"}, summary = ${originalAr.summary ? `'${originalAr.summary}'` : "NULL"}, intro = ${originalAr.intro ? `'${originalAr.intro}'` : "NULL"} WHERE _parent_id = ${publishedProject.id} AND _locale = 'ar'`,
+          ),
+        )
+      } else {
+        await payload.db.drizzle.execute(
+          sql.raw(`DELETE FROM projects_locales WHERE _parent_id = ${publishedProject.id} AND _locale = 'ar'`),
+        )
+      }
+      const previewSecret = process.env.PREVIEW_SECRET
+      if (previewSecret) {
+        await fetch(`${BASE}/api/cache/projects`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${previewSecret}`, "content-type": "application/json" },
+          body: JSON.stringify({ slug: publishedProject.slug }),
+        })
+      }
+    })
+
+    if (hadArRow) {
+      await payload.db.drizzle.execute(
+        sql.raw(
+          `UPDATE projects_locales SET title = NULL, summary = 'Arabic Optional Summary ${RUN}', intro = 'Arabic Optional Intro ${RUN}' WHERE _parent_id = ${publishedProject.id} AND _locale = 'ar'`,
+        ),
+      )
+    } else {
+      await payload.db.drizzle.execute(
+        sql.raw(
+          `INSERT INTO projects_locales (_parent_id, _locale, title, summary, intro) VALUES (${publishedProject.id}, 'ar', NULL, 'Arabic Optional Summary ${RUN}', 'Arabic Optional Intro ${RUN}')`,
+        ),
+      )
+    }
+
+    const previewSecret = process.env.PREVIEW_SECRET
+    if (previewSecret) {
+      await fetch(`${BASE}/api/cache/projects`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${previewSecret}`, "content-type": "application/json" },
+        body: JSON.stringify({ slug: publishedProject.slug }),
+      })
+    }
+
+    const [untransProjectListingAr, untransProjectDetailAr] = await Promise.all([
+      page("/ar/projects"),
+      page(`/ar/projects/${publishedProject.slug}`),
+    ])
+
+    check(
+      "untranslated record with populated Arabic optional field uses English on listing card and detail page",
+      untransProjectListingAr.html.includes(publishedProject.title || "") &&
+        !untransProjectListingAr.html.includes("Arabic Optional Summary " + RUN) &&
+        !untransProjectListingAr.html.includes("Arabic Optional Intro " + RUN) &&
+        untransProjectDetailAr.html.includes(publishedProject.title || "") &&
+        !untransProjectDetailAr.html.includes("Arabic Optional Summary " + RUN) &&
+        !untransProjectDetailAr.html.includes("Arabic Optional Intro " + RUN),
+      `listing has English title: ${untransProjectListingAr.html.includes(publishedProject.title || "")}, detail has English title: ${untransProjectDetailAr.html.includes(publishedProject.title || "")}`,
+    )
+  }
 
   const homeEn = await setGlobal(E, "page-home", "en", {})
   await setGlobal(E, "page-home", "en", {
