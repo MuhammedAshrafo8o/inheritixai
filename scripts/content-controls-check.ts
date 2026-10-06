@@ -145,12 +145,13 @@ async function main() {
     "clearing an Arabic optional label leaves English unchanged",
     localizedArticleEn.html.includes("English contents " + RUN),
   )
+  const expectedCanonical = `${BASE}/insights/software-people-adopt`
   check(
     "explicit untranslated-record fallback keeps English canonical + noindex",
     localizedArticleAr.html.includes("Business software people actually adopt") &&
       localizedArticleAr.html.includes('name="robots" content="noindex') &&
       localizedArticleAr.html.includes(
-        'rel="canonical" href="http://localhost:8443/insights/software-people-adopt"',
+        `rel="canonical" href="${expectedCanonical}"`,
       ),
   )
   check(
@@ -162,7 +163,7 @@ async function main() {
   // ── Untranslated record with populated Arabic optional field uses English ──
   payload = await getPayload({ config })
   const db = payload
-  const publishedProject = (
+  let publishedProject = (
     await db.find({
       collection: "projects",
       where: { _status: { equals: "published" } },
@@ -170,6 +171,73 @@ async function main() {
       locale: "en",
     })
   ).docs[0]
+  if (!publishedProject) {
+    const draftProject = (
+      await db.find({
+        collection: "projects",
+        limit: 1,
+        locale: "en",
+      })
+    ).docs[0]
+    if (draftProject) {
+      await db.update({
+        collection: "projects",
+        id: draftProject.id,
+        data: { _status: "published" } as never,
+        draft: false,
+        overrideAccess: true,
+      })
+      restore.unshift({
+        label: `revert project ${draftProject.slug} to draft`,
+        run: async () => {
+          await db.update({
+            collection: "projects",
+            id: draftProject.id,
+            data: { _status: "draft" } as never,
+            draft: true,
+            overrideAccess: true,
+          })
+          await invalidateProjectCache(draftProject.slug, "revert project to draft")
+        },
+      })
+      await invalidateProjectCache(draftProject.slug, "publish project fixture")
+      publishedProject = (await db.findByID({
+        collection: "projects",
+        id: draftProject.id,
+        locale: "en",
+        overrideAccess: true,
+      })) as unknown as typeof draftProject
+    } else {
+      const clientDoc = (await db.find({ collection: "clients", limit: 1, overrideAccess: true })).docs[0]
+      const created = await db.create({
+        collection: "projects",
+        data: {
+          title: "Test Project Fixture",
+          slug: `test-project-${RUN}`,
+          client: clientDoc?.id,
+          sector: "Logistics",
+          year: 2026,
+          summary: "Test project summary for content control verification",
+          _status: "published",
+        } as never,
+        draft: false,
+        locale: "en",
+        overrideAccess: true,
+      })
+      restore.unshift({
+        label: `delete project fixture ${created.slug}`,
+        run: async () => {
+          await db.delete({
+            collection: "projects",
+            id: created.id,
+            overrideAccess: true,
+          })
+        },
+      })
+      await invalidateProjectCache(created.slug, "create project fixture")
+      publishedProject = created as unknown as typeof publishedProject
+    }
+  }
   if (!publishedProject) {
     check("untranslated record with populated Arabic optional field uses English on listing card and detail page", false, "no published project to test with")
   } else {
@@ -369,6 +437,17 @@ async function main() {
     }
     const hit = await page(`/r${code}-${RUN}`)
     check(`stored ${code} served as ${code}`, hit.status === Number(code) && hit.location?.endsWith("/about") === true, `HTTP ${hit.status} → ${hit.location}`)
+  }
+  const existingLegacy = (await json(await http('/api/redirects?where[from][equals]=/legacy-301-test&limit=1', { token: A }))).docs?.[0]
+  if (!existingLegacy) {
+    const res = await send("POST", "/api/redirects", A, { from: "/legacy-301-test", to: "/about", statusCode: "308" })
+    const createdLegacy = (await json(res)).doc
+    if (createdLegacy?.id) {
+      restore.unshift({
+        label: "delete legacy test redirect fixture",
+        run: async () => expectOk(await http(`/api/redirects/${createdLegacy.id}`, { method: "DELETE", token: A }), `delete redirect ${createdLegacy.id}`),
+      })
+    }
   }
   const legacy = await page("/legacy-301-test")
   check("legacy 301 row migrated to 308", legacy.status === 308, `HTTP ${legacy.status}`)

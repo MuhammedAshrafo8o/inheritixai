@@ -51,11 +51,42 @@ export async function POST(request: Request) {
   const advertised = Number(request.headers.get("content-length") || 0)
   if (advertised > MAX_INQUIRY_BODY_BYTES) return json("PAYLOAD_TOO_LARGE", 413)
 
+  if (!request.body) return json("INVALID_INPUT", 400)
+  const reader = request.body.getReader()
+  const chunks: Uint8Array[] = []
+  let totalBytes = 0
+  let exceeded = false
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      if (value) {
+        totalBytes += value.byteLength
+        if (totalBytes > MAX_INQUIRY_BODY_BYTES) {
+          exceeded = true
+          await reader.cancel("payload_too_large")
+          break
+        }
+        chunks.push(value)
+      }
+    }
+  } catch {
+    if (exceeded) return json("PAYLOAD_TOO_LARGE", 413)
+    return json("INVALID_JSON", 400)
+  }
+
+  if (exceeded) return json("PAYLOAD_TOO_LARGE", 413)
+
   let raw: unknown
   try {
-    const bytes = new Uint8Array(await request.arrayBuffer())
-    if (bytes.byteLength > MAX_INQUIRY_BODY_BYTES) return json("PAYLOAD_TOO_LARGE", 413)
-    raw = JSON.parse(new TextDecoder().decode(bytes))
+    const merged = new Uint8Array(totalBytes)
+    let offset = 0
+    for (const chunk of chunks) {
+      merged.set(chunk, offset)
+      offset += chunk.byteLength
+    }
+    raw = JSON.parse(new TextDecoder().decode(merged))
   } catch {
     return json("INVALID_JSON", 400)
   }

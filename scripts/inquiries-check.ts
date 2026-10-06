@@ -1,3 +1,4 @@
+import http from "node:http"
 import net from "node:net"
 import path from "node:path"
 import { createRequire } from "node:module"
@@ -22,11 +23,50 @@ const payload = await getPayload({ config })
 // This suite is destructive by design and must only target its documented
 // disposable database. Reset Milestone Three operational rows for repeatability.
 if (!process.env.DATABASE_URI?.includes("m3_test")) throw new Error("test:inquiries requires a disposable *_m3_test database")
+try {
+  await payload.db.migrate()
+} catch (err) {
+  console.log("[test:inquiries] migrate note:", err instanceof Error ? err.message : String(err))
+}
+
+const existingAdmin = (await payload.find({ collection: "users", where: { email: { equals: "admin-m3@example.test" } }, overrideAccess: true, limit: 1 })).docs[0]
+if (!existingAdmin) {
+  await payload.create({
+    collection: "users",
+    data: { email: "admin-m3@example.test", password: "M3-Admin-Verification-2026!", name: "Admin M3", roles: ["admin"] },
+    overrideAccess: true,
+  })
+}
+const existingEditor = (await payload.find({ collection: "users", where: { email: { equals: "editor-m3@example.test" } }, overrideAccess: true, limit: 1 })).docs[0]
+if (!existingEditor) {
+  await payload.create({
+    collection: "users",
+    data: { email: "editor-m3@example.test", password: "M3-Editor-Verification-2026!", name: "Editor M3", roles: ["editor"] },
+    overrideAccess: true,
+  })
+}
+
+const productCount = (await payload.count({ collection: "products", overrideAccess: true })).totalDocs
+if (productCount === 0) {
+  console.log("[test:inquiries] seeding fixtures...")
+  const npxCmd = process.platform === "win32" ? "npx.cmd" : "npx"
+  await new Promise<void>((resolve, reject) => {
+    const seedProc = spawn(npxCmd, ["tsx", "scripts/seed.ts"], {
+      cwd: process.cwd(),
+      env: process.env,
+      stdio: "inherit",
+      shell: process.platform === "win32",
+    })
+    seedProc.on("exit", (code) => code === 0 ? resolve() : reject(new Error(`Seed exited ${code}`)))
+  })
+}
+
 await payload.db.drizzle.execute(sql`TRUNCATE TABLE "inquiry_records" RESTART IDENTITY CASCADE`)
 await payload.db.drizzle.execute(sql`TRUNCATE TABLE "inquiry_rate_limits" RESTART IDENTITY CASCADE`)
 
 function smtpCapture() {
   const messages: string[] = []
+  let dropAfterData = false
   const server = net.createServer((socket) => {
     socket.setEncoding("utf8")
     socket.write("220 localhost Inheritix test SMTP\r\n")
@@ -41,6 +81,10 @@ function smtpCapture() {
           messages.push(buffer.slice(0, end))
           buffer = buffer.slice(end + 5)
           dataMode = false
+          if (dropAfterData) {
+            socket.destroy()
+            return
+          }
           socket.write("250 2.0.0 accepted\r\n")
           continue
         }
@@ -56,7 +100,11 @@ function smtpCapture() {
       }
     })
   })
-  return { messages, server }
+  return {
+    messages,
+    server,
+    setDropAfterData: (value: boolean) => { dropAfterData = value },
+  }
 }
 
 const capture = smtpCapture()
@@ -103,6 +151,42 @@ async function login(email: string, password: string) {
   return cookie
 }
 
+function sendRaw(bodyString: string, chunked = false, ip = "198.51.100.90") {
+  return new Promise<{ status: number; body: string; json: Record<string, unknown> }>((resolve, reject) => {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Origin: ORIGIN,
+      "X-Forwarded-For": ip,
+    }
+    if (chunked) {
+      headers["Transfer-Encoding"] = "chunked"
+    } else {
+      headers["Content-Length"] = String(Buffer.byteLength(bodyString))
+    }
+    const req = http.request(`${ORIGIN}/api/inquiries`, {
+      method: "POST",
+      headers,
+    }, (res) => {
+      let data = ""
+      res.on("data", (chunk) => { data += chunk })
+      res.on("end", () => {
+        let parsed: Record<string, unknown> = {}
+        try { parsed = JSON.parse(data) } catch { /* ignore */ }
+        resolve({ status: res.statusCode || 0, body: data, json: parsed })
+      })
+    })
+    req.on("error", reject)
+    if (chunked) {
+      const half = Math.floor(bodyString.length / 2)
+      req.write(bodyString.slice(0, half))
+      req.write(bodyString.slice(half))
+    } else {
+      req.write(bodyString)
+    }
+    req.end()
+  })
+}
+
 const product = (await payload.find({ collection: "products", where: { _status: { equals: "published" } }, limit: 1, overrideAccess: true, depth: 0 })).docs[0]
 const service = (await payload.find({ collection: "services", where: { _status: { equals: "published" } }, limit: 1, overrideAccess: true, depth: 0 })).docs[0]
 if (!product || !service) throw new Error("Published product and service fixtures are required.")
@@ -129,6 +213,7 @@ try {
   const ar = await api("/ar/contact"); const arHtml = await ar.text()
   check("English contact form renders CMS operational copy", en.status === 200 && enHtml.includes("Inquiry received"))
   check("Arabic RTL contact form renders Arabic operational copy", ar.status === 200 && arHtml.includes('dir="rtl"') && arHtml.includes("تم استلام استفسارك"))
+  check("contact form contains accessible fieldset with submitting disabled protection", enHtml.includes("<fieldset") && enHtml.includes('role="tablist"'))
 
   let ip = 20
   for (const locale of ["en", "ar"] as const) for (const type of ["project", "demo", "general"] as const) {
@@ -154,6 +239,24 @@ try {
   check("content type enforced", contentType.status === 415)
   const oversized = await api("/api/inquiries", { method: "POST", headers: requestHeaders("198.51.100.43"), body: JSON.stringify({ padding: "x".repeat(33_000) }) })
   check("advertised 32KB request limit enforced", oversized.status === 413)
+
+  // ── Chunked stream limit enforcement and boundary tests ─────────────────
+  const chunkedOversized = await sendRaw(JSON.stringify({ padding: "x".repeat(33_000) }), true, "198.51.100.45")
+  check("chunked request without Content-Length exceeding 32KiB canceled and rejected with 413", chunkedOversized.status === 413)
+
+  // Boundary check: exactly 32768 bytes (32 KiB)
+  const basePayload = submission("general", "en", randomUUID())
+  const baseJson = JSON.stringify(basePayload)
+  const padTo32k = 32768 - Buffer.byteLength(baseJson)
+  const exact32kJson = baseJson + " ".repeat(padTo32k)
+  const exact32kResult = await sendRaw(exact32kJson, false, "198.51.100.46")
+  check("request at exactly 32KiB (32768 bytes) boundary accepted", Buffer.byteLength(exact32kJson) === 32768 && exact32kResult.status === 201)
+
+  // Boundary check: 32769 bytes (exceeds by 1 byte)
+  const over32kJson = baseJson + " ".repeat(padTo32k + 1)
+  const over32kResult = await sendRaw(over32kJson, false, "198.51.100.47")
+  check("request exceeding 32KiB boundary by 1 byte rejected with 413", Buffer.byteLength(over32kJson) === 32769 && over32kResult.status === 413)
+
   const crossOrigin = await api("/api/inquiries", { method: "POST", headers: { "Content-Type": "application/json", Origin: "https://evil.example" }, body: JSON.stringify(submission("general", "en")) })
   check("cross-origin submission rejected", crossOrigin.status === 403)
   const beforeHoney = (await payload.count({ collection: "inquiry-records", overrideAccess: true })).totalDocs
@@ -189,6 +292,19 @@ try {
   const rendered = messageFor({ id: "test", publicReference: "INQ-TEST", inquiryType: "general", name: "Visitor", email: "visitor@example.test", message: "<script>alert('never')</script>" })
   check("HTML notification escapes submitted markup", escapeHtml("<script>") === "&lt;script&gt;" && rendered.html.includes("&lt;script&gt;") && !rendered.html.includes("<script>"))
 
+  // ── Ambiguous SMTP outcome: connection drop after DATA ──────────────────
+  capture.setDropAfterData(true)
+  const dropSub = await submit(submission("general", "en", randomUUID()), "198.51.100.208")
+  const dropDoc = (await payload.find({ collection: "inquiry-records", where: { publicReference: { equals: dropSub.json.reference } }, limit: 1, overrideAccess: true, depth: 0 })).docs[0]!
+  const dropWorkerResult = await processNextInquiryNotification(payload)
+  const dropUpdated = await payload.findByID({ collection: "inquiry-records", id: dropDoc.id, overrideAccess: true, depth: 0 })
+  check("post-DATA SMTP connection drop classified as uncertain outcome", dropWorkerResult.status === "uncertain" && dropUpdated.notificationStatus === "uncertain" && dropUpdated.notificationFailureCode === "uncertain-data-transmitted")
+
+  // Prove subsequent worker runs do not resend uncertain notification
+  const subsequentWorker = await processNextInquiryNotification(payload)
+  check("subsequent worker runs do not resend uncertain notification", subsequentWorker.processed === false)
+  capture.setDropAfterData(false)
+
   const abandoned = await submit(submission("general", "en"), "198.51.100.204")
   const abandonedDoc = (await payload.find({ collection: "inquiry-records", where: { publicReference: { equals: abandoned.json.reference } }, limit: 1, overrideAccess: true, depth: 0 })).docs[0]!
   await payload.update({ collection: "inquiry-records", id: abandonedDoc.id, data: { notificationStatus: "processing", notificationLockedAt: new Date(Date.now() - 20 * 60_000).toISOString() } as never, overrideAccess: true, context: { inquirySystemOperation: true } })
@@ -217,9 +333,60 @@ try {
   const editorTest = await api("/api/admin/email/test", { method: "POST", headers: requestHeaders(undefined, editorCookie), body: "{}" })
   check("editor cannot use SMTP actions", editorTest.status === 403)
 
+  // ── Interleaved retry requests with worker claim & duplicate acknowledgment ──
+  // 1. Uncertain retry without acknowledgment rejected with 409
+  const unackRetry = await api(`/api/admin/inquiries/${dropDoc.id}/retry`, {
+    method: "POST",
+    headers: requestHeaders(undefined, adminCookie),
+    body: JSON.stringify({ acknowledgeDuplicate: false }),
+  })
+  const unackJson = await unackRetry.json() as { code?: string }
+  check("retry of uncertain notification without explicit duplicate acknowledgment rejected with 409", unackRetry.status === 409 && unackJson.code === "DUPLICATE_ACKNOWLEDGMENT_REQUIRED")
+
+  // 2. First retry request with acknowledgment succeeds and transitions to pending
+  const ackRetry = await api(`/api/admin/inquiries/${dropDoc.id}/retry`, {
+    method: "POST",
+    headers: requestHeaders(undefined, adminCookie),
+    body: JSON.stringify({ acknowledgeDuplicate: true }),
+  })
+  check("retry of uncertain notification with duplicate acknowledgment queues pending retry", ackRetry.status === 200)
+
+  // 3. Worker claims the pending notification (transitions to processing)
+  await payload.update({
+    collection: "inquiry-records",
+    id: dropDoc.id,
+    data: { notificationStatus: "processing", notificationLockedAt: new Date().toISOString() } as never,
+    overrideAccess: true,
+    context: { inquirySystemOperation: true },
+  })
+
+  // 4. Interleaved second retry request while worker is processing
+  const losingRetry = await api(`/api/admin/inquiries/${dropDoc.id}/retry`, {
+    method: "POST",
+    headers: requestHeaders(undefined, adminCookie),
+    body: JSON.stringify({ acknowledgeDuplicate: true }),
+  })
+  const losingJson = await losingRetry.json() as { code?: string }
+  check("interleaved retry while notification is processing is rejected with 409 conflict", losingRetry.status === 409 && losingJson.code === "INVALID_STATE")
+
+  // 5. Prove row remained in processing without being requeued
+  const afterLosing = await payload.findByID({ collection: "inquiry-records", id: dropDoc.id, overrideAccess: true, depth: 0 })
+  check("processing notification state was not reset or requeued by losing retry", afterLosing.notificationStatus === "processing")
+
+  // Settle row
+  await payload.update({
+    collection: "inquiry-records",
+    id: dropDoc.id,
+    data: { notificationStatus: "accepted", notificationAcceptedAt: new Date().toISOString(), notificationLockedAt: null } as never,
+    overrideAccess: true,
+    context: { inquirySystemOperation: true },
+  })
+
+  // Normal failed retry check
   await payload.update({ collection: "inquiry-records", id: failedDoc!.id, data: { notificationStatus: "failed" } as never, overrideAccess: true, context: { inquirySystemOperation: true } })
   const retry = await api(`/api/admin/inquiries/${failedDoc!.id}/retry`, { method: "POST", headers: requestHeaders(undefined, adminCookie), body: "{}" })
   check("administrator protected retry reuses the persisted queue row", retry.status === 200)
+
   const noteResponse = await api(`/api/inquiry-records/${failedDoc!.id}`, { method: "PATCH", headers: requestHeaders(undefined, adminCookie), body: JSON.stringify({ unread: false, workflowStatus: "in-progress", internalNotes: [{ note: "Reviewed during verification." }] }) })
   const noted = await noteResponse.json() as Record<string, unknown>
   const notedDoc = (noted.doc ?? noted) as Record<string, unknown>

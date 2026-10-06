@@ -1,7 +1,7 @@
 import { sql } from "@payloadcms/db-postgres"
 import type { Payload } from "payload"
 import { getPayloadClient } from "@/cms/queries"
-import { createSmtpTransport, escapeHtml, getPrivateEmailSettings, safeMailbox, sanitizeSmtpError } from "./smtp"
+import { createTrackedSmtpTransport, escapeHtml, getPrivateEmailSettings, safeMailbox, sanitizeSmtpError, type TransportStage } from "./smtp"
 import { getServerEnv } from "@/env"
 
 export const MAX_NOTIFICATION_ATTEMPTS = 5
@@ -83,6 +83,7 @@ export async function processNextInquiryNotification(provided?: Payload) {
   const doc = await payload.findByID({ collection: "inquiry-records" as never, id, overrideAccess: true, depth: 0 }) as unknown as Record<string, unknown>
   const attempts = Number(doc.notificationAttempts || 1)
   let smtpAccepted = false
+  const tracker: { stage: TransportStage } = { stage: "pre-data" }
   try {
     const settings = await getPrivateEmailSettings(payload)
     if (!settings.notificationsEnabled) {
@@ -90,7 +91,7 @@ export async function processNextInquiryNotification(provided?: Payload) {
       return { processed: true as const, status: "disabled" }
     }
     const content = messageFor(doc)
-    const transport = createSmtpTransport(settings)
+    const transport = createTrackedSmtpTransport(settings, tracker)
     const info = await transport.sendMail({
       from: safeMailbox(settings.senderName, settings.senderEmail),
       to: safeMailbox("Inheritix notifications", settings.notificationRecipient),
@@ -103,20 +104,39 @@ export async function processNextInquiryNotification(provided?: Payload) {
     })
     smtpAccepted = Array.isArray(info.accepted) ? info.accepted.length > 0 : true
     if (!smtpAccepted) throw Object.assign(new Error("SMTP did not accept a recipient."), { code: "EENVELOPE" })
+    tracker.stage = "accepted"
     await systemUpdate(payload, id, withEvent(doc, {
       notificationStatus: "accepted", notificationAcceptedAt: new Date().toISOString(),
       notificationLockedAt: null, notificationNextAttemptAt: null, notificationFailureCode: null,
     }, "accepted"))
     return { processed: true as const, status: "accepted" }
   } catch (error) {
-    const classified = sanitizeSmtpError(error)
-    // Once SMTP has accepted a message, a later persistence failure is
-    // uncertain: an automatic retry could duplicate delivery.
+    const classified = sanitizeSmtpError(error, tracker.stage)
+    // Confirmed SMTP acceptance followed by database-write failure: uncertain
     if (smtpAccepted) {
-      try { await systemUpdate(payload, id, withEvent(doc, { notificationStatus: "uncertain", notificationFailureCode: "accepted-state-write-failed", notificationLockedAt: null }, "uncertain", "accepted-state-write-failed")) } catch { /* stale processing is converted to uncertain by the next worker */ }
+      try {
+        await systemUpdate(payload, id, withEvent(doc, {
+          notificationStatus: "uncertain",
+          notificationFailureCode: "accepted-state-write-failed",
+          notificationLockedAt: null,
+          notificationNextAttemptAt: null,
+        }, "uncertain", "accepted-state-write-failed"))
+      } catch { /* stale processing is converted to uncertain by the next worker */ }
       return { processed: true as const, status: "uncertain" }
     }
-    const retry = classified.retryable && attempts < MAX_NOTIFICATION_ATTEMPTS
+
+    // Potential acceptance with missing final acknowledgment (complete message transmitted): uncertain
+    if (classified.outcome === "uncertain") {
+      await systemUpdate(payload, id, withEvent(doc, {
+        notificationStatus: "uncertain",
+        notificationFailureCode: classified.code,
+        notificationLockedAt: null,
+        notificationNextAttemptAt: null,
+      }, "uncertain", classified.code))
+      return { processed: true as const, status: "uncertain" }
+    }
+
+    const retry = classified.retryable && classified.outcome === "retryable-transient" && attempts < MAX_NOTIFICATION_ATTEMPTS
     const delaySeconds = Math.min(3600, 60 * 2 ** Math.max(0, attempts - 1))
     await systemUpdate(payload, id, withEvent(doc, {
       notificationStatus: retry ? "retry-wait" : "failed",

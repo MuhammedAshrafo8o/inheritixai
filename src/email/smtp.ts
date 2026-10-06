@@ -72,14 +72,74 @@ export function createSmtpTransport(settings: PrivateEmailSettings & { smtpPassw
   })
 }
 
-export function sanitizeSmtpError(error: unknown) {
+export type TransportStage = "pre-data" | "data-transmitting" | "data-transmitted" | "accepted" | "unknown"
+
+export type SmtpOutcome = "retryable-transient" | "permanent-failure" | "uncertain"
+
+export interface SanitizedSmtpError {
+  code: string
+  retryable: boolean
+  outcome: SmtpOutcome
+}
+
+export function createTrackedSmtpTransport(
+  settings: PrivateEmailSettings & { smtpPassword?: string },
+  tracker?: { stage: TransportStage }
+): Transporter {
+  const transport = createSmtpTransport(settings)
+  if (tracker) {
+    tracker.stage = "pre-data"
+    transport.use("stream", (mail, next) => {
+      try {
+        const origCreateReadStream = mail.message.createReadStream.bind(mail.message)
+        mail.message.createReadStream = ((options?: Parameters<typeof origCreateReadStream>[0]) => {
+          tracker.stage = "data-transmitting"
+          const stream = origCreateReadStream(options)
+          stream.on("end", () => {
+            tracker.stage = "data-transmitted"
+          })
+          return stream
+        }) as typeof origCreateReadStream
+      } catch {
+        tracker.stage = "unknown"
+      }
+      next()
+    })
+  }
+  return transport
+}
+
+export function sanitizeSmtpError(error: unknown, stage?: TransportStage): SanitizedSmtpError {
   const candidate = error as { code?: unknown; responseCode?: unknown; command?: unknown }
   const code = String(candidate?.code || "").toUpperCase()
   const responseCode = Number(candidate?.responseCode || 0)
-  if (["EAUTH", "EENVELOPE", "EMESSAGE"].includes(code) || responseCode >= 500) return { code: code === "EAUTH" ? "smtp-auth" : "smtp-permanent", retryable: false }
-  if (["ETIMEDOUT", "ECONNECTION", "ECONNRESET", "EDNS", "ESOCKET"].includes(code) || (responseCode >= 400 && responseCode < 500)) return { code: "smtp-temporary", retryable: true }
-  if (error instanceof Error && ["smtp-credential-missing", "smtp-configuration-incomplete", "plaintext-smtp-not-permitted"].includes(error.message)) return { code: error.message, retryable: false }
-  return { code: "smtp-unknown", retryable: true }
+
+  // 1. Explicit permanent rejection
+  if (["EAUTH", "EENVELOPE", "EMESSAGE"].includes(code) || responseCode >= 500) {
+    return { code: code === "EAUTH" ? "smtp-auth" : "smtp-permanent", retryable: false, outcome: "permanent-failure" }
+  }
+
+  // 2. Pre-connection configuration or mailbox format errors
+  if (error instanceof Error && ["smtp-credential-missing", "smtp-configuration-incomplete", "plaintext-smtp-not-permitted", "smtp-invalid-mailbox"].includes(error.message)) {
+    return { code: error.message, retryable: false, outcome: "permanent-failure" }
+  }
+
+  // 3. Potential acceptance with missing final acknowledgment: complete message DATA transmitted
+  if (stage === "data-transmitted") {
+    return { code: "uncertain-data-transmitted", retryable: false, outcome: "uncertain" }
+  }
+
+  // 4. Transport stage could not be established: conservative uncertain classification
+  if (stage === "unknown") {
+    return { code: "uncertain-stage-unknown", retryable: false, outcome: "uncertain" }
+  }
+
+  // 5. Known pre-delivery transient failures
+  if (["ETIMEDOUT", "ECONNECTION", "ECONNRESET", "EDNS", "ESOCKET"].includes(code) || (responseCode >= 400 && responseCode < 500)) {
+    return { code: "smtp-temporary", retryable: true, outcome: "retryable-transient" }
+  }
+
+  return { code: "smtp-unknown", retryable: true, outcome: "retryable-transient" }
 }
 
 export function escapeHtml(value: unknown) {

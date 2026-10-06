@@ -23,6 +23,7 @@ import { BoldFeatureClient as BoldFeatureClient_e70f5e05f09f93e00b997edb1ef0c864
 import { ItalicFeatureClient as ItalicFeatureClient_e70f5e05f09f93e00b997edb1ef0c864 } from '@payloadcms/richtext-lexical/client'
 import { InquiryActions as InquiryActions_c2bc328a8d9d209c4376338c4783fa9d } from '@/payload/admin/InquiryActions'
 import { InquirySummary as InquirySummary_0c1939202d6c733e9e88c8d39d14c5fb } from '@/payload/admin/InquirySummary'
+import { MaskedPasswordField as MaskedPasswordField_23aef793a5f329c196214634aeeafcbc } from '@/payload/admin/MaskedPasswordField'
 import { EmailSettingsActions as EmailSettingsActions_615487d1aff03145cb72d065c4a3e0ee } from '@/payload/admin/EmailSettingsActions'
 import { CollectionCards as CollectionCards_f9c02e79a4aed9a3924487c0cd4cafb1 } from '@payloadcms/next/rsc'
 
@@ -53,6 +54,7 @@ export const importMap = {
   "@payloadcms/richtext-lexical/client#ItalicFeatureClient": ItalicFeatureClient_e70f5e05f09f93e00b997edb1ef0c864,
   "@/payload/admin/InquiryActions#InquiryActions": InquiryActions_c2bc328a8d9d209c4376338c4783fa9d,
   "@/payload/admin/InquirySummary#InquirySummary": InquirySummary_0c1939202d6c733e9e88c8d39d14c5fb,
+  "@/payload/admin/MaskedPasswordField#MaskedPasswordField": MaskedPasswordField_23aef793a5f329c196214634aeeafcbc,
   "@/payload/admin/EmailSettingsActions#EmailSettingsActions": EmailSettingsActions_615487d1aff03145cb72d065c4a3e0ee,
   "@payloadcms/next/rsc#CollectionCards": CollectionCards_f9c02e79a4aed9a3924487c0cd4cafb1
 }

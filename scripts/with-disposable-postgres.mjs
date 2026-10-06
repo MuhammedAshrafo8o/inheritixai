@@ -7,7 +7,22 @@ import { tmpdir } from "node:os"
 import path from "node:path"
 import { spawn } from "node:child_process"
 import { randomBytes } from "node:crypto"
+import fs from "node:fs"
 import EmbeddedPostgres from "embedded-postgres"
+
+if (fs.existsSync(".env.local")) {
+  const lines = fs.readFileSync(".env.local", "utf8").split(/\r?\n/)
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith("#")) continue
+    const eq = trimmed.indexOf("=")
+    if (eq > 0) {
+      const k = trimmed.slice(0, eq).trim()
+      const v = trimmed.slice(eq + 1).trim()
+      if (!process.env[k]) process.env[k] = v
+    }
+  }
+}
 
 const command = process.argv[2]
 const args = process.argv.slice(3)
@@ -48,7 +63,7 @@ try {
   const child = spawn(command, args, {
     cwd: process.cwd(),
     stdio: "inherit",
-    shell: process.platform === "win32" && /\.cmd$/i.test(command),
+    shell: process.platform === "win32" && (/\.cmd$/i.test(command) || command === "npm" || command === "npx"),
     env: {
       ...process.env,
       DATABASE_URI: `postgresql://postgres:${password}@127.0.0.1:${port}/${database}`,
@@ -58,7 +73,7 @@ try {
       EMAIL_ENCRYPTION_KEY: process.env.EMAIL_ENCRYPTION_KEY || randomBytes(32).toString("base64"),
       INQUIRY_IP_HASH_KEY: process.env.INQUIRY_IP_HASH_KEY || randomBytes(48).toString("base64url"),
       INHERITIX_TRUSTED_PROXY_HOPS: "1",
-      INHERITIX_ALLOW_INSECURE_LOCAL_SMTP: "true",
+      ...(args.includes("build") ? {} : { INHERITIX_ALLOW_INSECURE_LOCAL_SMTP: process.env.INHERITIX_ALLOW_INSECURE_LOCAL_SMTP || "true" }),
     },
   })
   exitCode = await new Promise((resolve, reject) => {
@@ -67,7 +82,15 @@ try {
   })
 } finally {
   if (process.platform === "win32") {
-    const pgCtl = path.resolve("node_modules/@embedded-postgres/windows-x64/native/bin/pg_ctl.exe")
+    let pgCtl = null
+    try {
+      const { createRequire } = await import("node:module")
+      const req = createRequire(import.meta.url)
+      const winPkg = req.resolve("@embedded-postgres/windows-x64/package.json")
+      pgCtl = path.resolve(path.dirname(winPkg), "native/bin/pg_ctl.exe")
+    } catch {
+      pgCtl = path.resolve("node_modules/@embedded-postgres/windows-x64/native/bin/pg_ctl.exe")
+    }
     await new Promise((resolve) => {
       const stop = spawn(pgCtl, ["-D", directory, "stop", "-m", "fast", "-w"], { stdio: "inherit" })
       stop.once("error", () => resolve())

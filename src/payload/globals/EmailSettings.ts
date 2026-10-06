@@ -107,7 +107,7 @@ export const EmailSettings: GlobalConfig = {
       defaultValue: false,
       admin: { description: "New inquiries create pending notification work only while enabled." },
     },
-    { type: "collapsible", label: "SMTP transport", fields: [
+    { type: "collapsible", label: "SMTP transport", admin: { initCollapsed: false }, fields: [
       { name: "smtpHost", type: "text", maxLength: 253 },
       { name: "smtpPort", type: "number", min: 1, max: 65535, defaultValue: 587 },
       {
@@ -126,14 +126,17 @@ export const EmailSettings: GlobalConfig = {
         name: "smtpPassword",
         type: "text",
         virtual: true,
-        access: { read: () => false },
-        admin: { description: "Leave blank to preserve the current password. A supplied value replaces it." },
+        admin: {
+          description: "Leave blank to preserve the current password. A supplied value replaces it.",
+          components: {
+            Field: "@/payload/admin/MaskedPasswordField#MaskedPasswordField",
+          },
+        },
       },
       {
         name: "clearSmtpPassword",
         type: "checkbox",
         virtual: true,
-        access: { read: () => false },
         admin: { description: "Clear the stored credential and disable notifications." },
       },
       {
