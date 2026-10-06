@@ -18,6 +18,8 @@ The visual reference and user interface faithfully preserve the approved Figma M
   - CMS REST & GraphQL APIs: `/api/[...slug]`, `/api/graphql`
   - On-Demand Cache Invalidation: `/api/cache/projects`
   - Authenticated Draft Preview: `/api/preview`
+  - Validated public inquiry submission: `POST /api/inquiries`
+  - Administrator-only SMTP checks and notification retries: `/api/admin/*`
 
 ---
 
@@ -38,6 +40,10 @@ Key environment variables:
 - `DATABASE_URI`: PostgreSQL connection string (e.g. `postgresql://postgres:postgres@127.0.0.1:5432/inheritix`)
 - `PAYLOAD_SECRET`: 48+ character cryptographically secure secret
 - `PREVIEW_SECRET`: Secret token for draft preview authorization
+- `EMAIL_ENCRYPTION_KEY`: 32-byte base64 key used only for authenticated SMTP-password encryption
+- `INQUIRY_IP_HASH_KEY`: dedicated server-side HMAC key for privacy-preserving rate-limit buckets
+- `INHERITIX_TRUSTED_PROXY_HOPS`: exact trusted reverse-proxy hop count (`0` ignores forwarding headers)
+- `INHERITIX_ALLOW_INSECURE_LOCAL_SMTP`: development-only opt-in for a loopback SMTP capture server
 
 ### 3. Start PostgreSQL Database
 Using Docker Compose (recommended):
@@ -58,6 +64,8 @@ npm run migrate:create <name>   # after changing collections/globals: generate a
 npm run migrate:check    # drift check: creates a "drift_check" migration only if config and migrations differ
 ```
 All Payload CLI commands run through `scripts/payload.mjs`, which guards against an observed intermittent startup stall of the stock Payload 3.90.2 CLI on this Node 22/Windows setup (root cause unconfirmed). The child sends an acknowledged IPC execution-boundary signal immediately before invoking the CLI command. Automatic retries are allowed only before that boundary; console silence is never used as proof that execution has not started. After the boundary, a failed mutating command has an indeterminate outcome and must be followed by `npm run migrate:status` plus database inspection before any manual retry. Do not call `npx payload migrate` directly in CI.
+
+Inquiry notifications are processed outside web requests. Run one supervised long-lived worker with `npm run worker:inquiries`, or schedule `npm run worker:inquiries:once` frequently enough for the desired delivery latency. Never run an unbounded worker from a request handler.
 
 ### 5. Accounts and Content Seed
 Create or rotate CMS accounts — credentials come from the environment (`INHERITIX_ADMIN_*`, `INHERITIX_EDITOR_*`) or an interactive hidden prompt. There are no default passwords and nothing secret is printed:
@@ -98,15 +106,19 @@ npm run dev
 8. **Categories** (`categories`): Topic tags for articles.
 9. **Authors** (`authors`): Editorial contributors.
 10. **Redirects** (`redirects`): Permanent 308 redirects with loop prevention.
+11. **Inquiries** (`inquiry-records`): Private, administrator-only visitor submissions, workflow/read state, append-only notes, and notification/outbox state.
+12. **Email Secrets** (`email-secrets`): Hidden, access-denied encrypted SMTP credential storage used only by server code.
+13. **Inquiry Rate Limits** (`inquiry-rate-limits`): Hidden PostgreSQL-backed expiring counters shared by all application processes.
 
 ### Globals
 - **SiteSettings** (`site-settings`): Site name, logos and favicon, validated brand colors (mapped to the `--blue`, `--cyan`, `--navy` design tokens), default SEO, social links, footer invitation.
 - **Navigation** (`navigation`): Header navigation links and call-to-action button.
 - **HomePage** (`page-home`): Hero copy and CTAs, section order, per-section visibility, product/story card selections, approach phases, perspective image, SEO.
 - **AboutPage** (`page-about`): Manifesto, core principles, architectural visual.
-- **ContactPage** (`page-contact`): Direct contact email, note, and Milestone 3 boundary notice.
+- **ContactPage** (`page-contact`): Direct contact email/note and localized public form labels, states, validation, and failure messages.
 - **ListingPages** (`listing-pages`): Headers for Services, Products, Projects, and Insights listings.
 - **SiteLabels** (`site-labels`): Common UI button and link labels.
+- **EmailSettings** (`email-settings`): Private administrator-only SMTP, sender, recipient, throttling, and sanitized test outcomes. Credentials are stored separately and encrypted.
 
 ---
 
@@ -124,7 +136,8 @@ npm run start
 ### Milestone Boundaries
 - **Milestone One (Completed)**: Visual design baseline, route scaffolding, development fixtures.
 - **Milestone Two (Completed, verified against PostgreSQL)**: Payload CMS 3.x, PostgreSQL migrations, secure account bootstrap, admin dashboard, content modeling, CMS-driven pages and branding, authorized drafts/preview, slug redirects, SEO and sitemap. Verification report and field-to-render checklist: `docs/milestone-two-verification.md`.
-- **Milestone Three (Upcoming)**: Contact submission database persistence, automated email delivery pipeline (Resend integration), and analytics dashboard.
+- **Milestone Three (Completed, verified against PostgreSQL and local SMTP capture)**: Durable inquiry submission, administrator dashboard management, encrypted configurable SMTP, PostgreSQL outbox processing, retries, protected test/retry actions, and bilingual accessible form states. Verification report: `docs/milestone-three-verification.md`.
+- **Milestone Four (Upcoming)**: Out of scope for this repository state; do not infer mailbox synchronization, visitor confirmation mail, newsletters, or marketing automation from Milestone Three.
 
 ---
 
@@ -139,3 +152,4 @@ npm run start
 - **Redirect status codes**: only 308 and 307 are offered, because public routes redirect from React Server Components (`permanentRedirect`/`redirect`).
 - **Deploy order**: apply migrations and switch to the matching build together. An older build writing to a newer schema can reset newly added localized columns to their English column defaults (observed during verification).
 - **Verification**: `npm run test:content-controls` checks CMS-driven copy, intentional-empty hiding and redirect statuses (restores everything it changes). `npm run test:integration` (requires a running server and `INHERITIX_*` credentials) exercises auth, uploads, drafts/preview, publishing, redirects, articles, branding and the homepage over HTTP.
+- **Inquiry safety**: `npm run test:inquiries` is destructive and refuses any database URI that does not include `m3_test`; use a disposable database. `npm run test:migrations:m3` provisions, verifies, and removes a disposable PostgreSQL 16 cluster. Production SMTP credentials and real recipients must never be used by automated tests.

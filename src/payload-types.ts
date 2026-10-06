@@ -77,6 +77,9 @@ export interface Config {
     categories: Category;
     authors: Author;
     redirects: Redirect;
+    'inquiry-records': InquiryRecord;
+    'inquiry-rate-limits': InquiryRateLimit;
+    'email-secrets': EmailSecret;
     'payload-kv': PayloadKv;
     'payload-locked-documents': PayloadLockedDocument;
     'payload-preferences': PayloadPreference;
@@ -94,6 +97,9 @@ export interface Config {
     categories: CategoriesSelect<false> | CategoriesSelect<true>;
     authors: AuthorsSelect<false> | AuthorsSelect<true>;
     redirects: RedirectsSelect<false> | RedirectsSelect<true>;
+    'inquiry-records': InquiryRecordsSelect<false> | InquiryRecordsSelect<true>;
+    'inquiry-rate-limits': InquiryRateLimitsSelect<false> | InquiryRateLimitsSelect<true>;
+    'email-secrets': EmailSecretsSelect<false> | EmailSecretsSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
     'payload-preferences': PayloadPreferencesSelect<false> | PayloadPreferencesSelect<true>;
@@ -111,6 +117,7 @@ export interface Config {
     'page-contact': PageContact;
     'listing-pages': ListingPage;
     'site-labels': SiteLabel;
+    'email-settings': EmailSetting;
   };
   globalsSelect: {
     'site-settings': SiteSettingsSelect<false> | SiteSettingsSelect<true>;
@@ -120,6 +127,7 @@ export interface Config {
     'page-contact': PageContactSelect<false> | PageContactSelect<true>;
     'listing-pages': ListingPagesSelect<false> | ListingPagesSelect<true>;
     'site-labels': SiteLabelsSelect<false> | SiteLabelsSelect<true>;
+    'email-settings': EmailSettingsSelect<false> | EmailSettingsSelect<true>;
   };
   locale: 'en' | 'ar';
   widgets: {
@@ -669,6 +677,88 @@ export interface Redirect {
   createdAt: string;
 }
 /**
+ * Private visitor inquiries. Submitted data is immutable; workflow fields and append-only notes are administrative.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "inquiry-records".
+ */
+export interface InquiryRecord {
+  id: number;
+  publicReference: string;
+  idempotencyKey: string;
+  payloadHash: string;
+  inquiryType: 'project' | 'demo' | 'general';
+  name: string;
+  email: string;
+  message: string;
+  submissionLocale: 'en' | 'ar';
+  submittedAt: string;
+  product?: (number | null) | Product;
+  service?: (number | null) | Service;
+  selectionLabelSnapshot?: string | null;
+  sourcePath: string;
+  attribution?: {
+    utmSource?: string | null;
+    utmMedium?: string | null;
+    utmCampaign?: string | null;
+    referrer?: string | null;
+  };
+  workflowStatus: 'new' | 'in-progress' | 'closed' | 'spam';
+  unread: boolean;
+  internalNotes?:
+    | {
+        note: string;
+        author?: (number | null) | User;
+        authorLabel: string;
+        createdAt: string;
+        id?: string | null;
+      }[]
+    | null;
+  notificationStatus: 'pending' | 'processing' | 'accepted' | 'retry-wait' | 'failed' | 'disabled' | 'uncertain';
+  notificationAttempts: number;
+  notificationNextAttemptAt?: string | null;
+  notificationLockedAt?: string | null;
+  notificationFailureCode?: string | null;
+  notificationLastAttemptAt?: string | null;
+  notificationAcceptedAt?: string | null;
+  /**
+   * Sanitized delivery history; no SMTP responses or credentials are stored.
+   */
+  notificationEvents?:
+    | {
+        occurredAt: string;
+        status: string;
+        code?: string | null;
+        id?: string | null;
+      }[]
+    | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "inquiry-rate-limits".
+ */
+export interface InquiryRateLimit {
+  id: number;
+  bucketKey: string;
+  count: number;
+  expiresAt: string;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "email-secrets".
+ */
+export interface EmailSecret {
+  id: number;
+  key: string;
+  ciphertext: string;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "payload-kv".
  */
@@ -731,6 +821,18 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'redirects';
         value: number | Redirect;
+      } | null)
+    | ({
+        relationTo: 'inquiry-records';
+        value: number | InquiryRecord;
+      } | null)
+    | ({
+        relationTo: 'inquiry-rate-limits';
+        value: number | InquiryRateLimit;
+      } | null)
+    | ({
+        relationTo: 'email-secrets';
+        value: number | EmailSecret;
       } | null);
   globalSlug?: string | null;
   user: {
@@ -1149,6 +1251,82 @@ export interface RedirectsSelect<T extends boolean = true> {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "inquiry-records_select".
+ */
+export interface InquiryRecordsSelect<T extends boolean = true> {
+  publicReference?: T;
+  idempotencyKey?: T;
+  payloadHash?: T;
+  inquiryType?: T;
+  name?: T;
+  email?: T;
+  message?: T;
+  submissionLocale?: T;
+  submittedAt?: T;
+  product?: T;
+  service?: T;
+  selectionLabelSnapshot?: T;
+  sourcePath?: T;
+  attribution?:
+    | T
+    | {
+        utmSource?: T;
+        utmMedium?: T;
+        utmCampaign?: T;
+        referrer?: T;
+      };
+  workflowStatus?: T;
+  unread?: T;
+  internalNotes?:
+    | T
+    | {
+        note?: T;
+        author?: T;
+        authorLabel?: T;
+        createdAt?: T;
+        id?: T;
+      };
+  notificationStatus?: T;
+  notificationAttempts?: T;
+  notificationNextAttemptAt?: T;
+  notificationLockedAt?: T;
+  notificationFailureCode?: T;
+  notificationLastAttemptAt?: T;
+  notificationAcceptedAt?: T;
+  notificationEvents?:
+    | T
+    | {
+        occurredAt?: T;
+        status?: T;
+        code?: T;
+        id?: T;
+      };
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "inquiry-rate-limits_select".
+ */
+export interface InquiryRateLimitsSelect<T extends boolean = true> {
+  bucketKey?: T;
+  count?: T;
+  expiresAt?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "email-secrets_select".
+ */
+export interface EmailSecretsSelect<T extends boolean = true> {
+  key?: T;
+  ciphertext?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "payload-kv_select".
  */
 export interface PayloadKvSelect<T extends boolean = true> {
@@ -1504,33 +1682,47 @@ export interface PageContact {
   directEmail?: string | null;
   directNote?: string | null;
   /**
-   * Truthful boundary notice regarding form submissions in Milestone Two.
+   * Legacy Milestone Two notice; retained for data compatibility and no longer rendered.
    */
   boundaryNotice?: string | null;
   /**
-   * Contact form copy. Product and service choices come from published Products and Services. Submission handling arrives in Milestone Three.
+   * Contact form copy. Product and service choices come from published Products and Services; submissions are handled by the protected inquiry endpoint.
    */
-  form?: {
-    directContactLabel?: string | null;
-    projectTab?: string | null;
-    demoTab?: string | null;
-    generalTab?: string | null;
-    projectHeading?: string | null;
-    demoHeading?: string | null;
-    generalHeading?: string | null;
-    nameLabel?: string | null;
+  form: {
+    directContactLabel: string;
+    projectTab: string;
+    demoTab: string;
+    generalTab: string;
+    projectHeading: string;
+    demoHeading: string;
+    generalHeading: string;
+    nameLabel: string;
     namePlaceholder?: string | null;
-    emailLabel?: string | null;
+    emailLabel: string;
     emailPlaceholder?: string | null;
-    productLabel?: string | null;
-    serviceLabel?: string | null;
-    messageLabel?: string | null;
+    productLabel: string;
+    serviceLabel: string;
+    messageLabel: string;
     messagePlaceholder?: string | null;
-    submitLabel?: string | null;
-    statusLabel?: string | null;
-    nameError?: string | null;
-    emailError?: string | null;
-    messageError?: string | null;
+    submitLabel: string;
+    statusLabel: string;
+    nameError: string;
+    emailError: string;
+    messageError: string;
+    submittingLabel: string;
+    successTitle: string;
+    successMessage: string;
+    referenceLabel: string;
+    validationSummary: string;
+    rateLimitedMessage: string;
+    temporaryFailureMessage: string;
+    conflictMessage: string;
+    retryLabel: string;
+    productRequiredError: string;
+    serviceRequiredError: string;
+    selectionUnavailableMessage: string;
+    generalInquiryLink: string;
+    honeypotLabel: string;
   };
   /**
    * Search and social metadata. Leave blank to use the page content and the site defaults.
@@ -1743,6 +1935,48 @@ export interface SiteLabel {
   errorTitle?: string | null;
   errorBody?: string | null;
   errorRetry?: string | null;
+  updatedAt?: string | null;
+  createdAt?: string | null;
+}
+/**
+ * Private SMTP configuration for inquiry notifications. SMTP acceptance is not inbox delivery.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "email-settings".
+ */
+export interface EmailSetting {
+  id: number;
+  /**
+   * New inquiries create pending notification work only while enabled.
+   */
+  notificationsEnabled?: boolean | null;
+  smtpHost?: string | null;
+  smtpPort?: number | null;
+  encryptionMode: 'starttls' | 'implicit-tls' | 'none';
+  smtpUsername?: string | null;
+  /**
+   * Leave blank to preserve the current password. A supplied value replaces it.
+   */
+  smtpPassword?: string | null;
+  /**
+   * Clear the stored credential and disable notifications.
+   */
+  clearSmtpPassword?: boolean | null;
+  /**
+   * Indicates whether an encrypted password is stored.
+   */
+  passwordConfigured?: boolean | null;
+  senderName?: string | null;
+  senderEmail?: string | null;
+  notificationRecipient?: string | null;
+  submissionLimitPerHour: number;
+  adminTestLimitPerHour: number;
+  lastConnectionTestStatus?: ('never' | 'succeeded' | 'failed') | null;
+  lastConnectionTestAt?: string | null;
+  lastConnectionTestCode?: string | null;
+  lastTestEmailStatus?: ('never' | 'accepted' | 'failed') | null;
+  lastTestEmailAt?: string | null;
+  lastTestEmailCode?: string | null;
   updatedAt?: string | null;
   createdAt?: string | null;
 }
@@ -2009,6 +2243,20 @@ export interface PageContactSelect<T extends boolean = true> {
         nameError?: T;
         emailError?: T;
         messageError?: T;
+        submittingLabel?: T;
+        successTitle?: T;
+        successMessage?: T;
+        referenceLabel?: T;
+        validationSummary?: T;
+        rateLimitedMessage?: T;
+        temporaryFailureMessage?: T;
+        conflictMessage?: T;
+        retryLabel?: T;
+        productRequiredError?: T;
+        serviceRequiredError?: T;
+        selectionUnavailableMessage?: T;
+        generalInquiryLink?: T;
+        honeypotLabel?: T;
       };
   seo?:
     | T
@@ -2161,6 +2409,34 @@ export interface SiteLabelsSelect<T extends boolean = true> {
   errorTitle?: T;
   errorBody?: T;
   errorRetry?: T;
+  updatedAt?: T;
+  createdAt?: T;
+  globalType?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "email-settings_select".
+ */
+export interface EmailSettingsSelect<T extends boolean = true> {
+  notificationsEnabled?: T;
+  smtpHost?: T;
+  smtpPort?: T;
+  encryptionMode?: T;
+  smtpUsername?: T;
+  smtpPassword?: T;
+  clearSmtpPassword?: T;
+  passwordConfigured?: T;
+  senderName?: T;
+  senderEmail?: T;
+  notificationRecipient?: T;
+  submissionLimitPerHour?: T;
+  adminTestLimitPerHour?: T;
+  lastConnectionTestStatus?: T;
+  lastConnectionTestAt?: T;
+  lastConnectionTestCode?: T;
+  lastTestEmailStatus?: T;
+  lastTestEmailAt?: T;
+  lastTestEmailCode?: T;
   updatedAt?: T;
   createdAt?: T;
   globalType?: T;

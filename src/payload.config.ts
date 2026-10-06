@@ -16,6 +16,9 @@ import { Posts } from "./payload/collections/Posts"
 import { Categories } from "./payload/collections/Categories"
 import { Authors } from "./payload/collections/Authors"
 import { Redirects } from "./payload/collections/Redirects"
+import { Inquiries } from "./payload/collections/Inquiries"
+import { InquiryRateLimits } from "./payload/collections/InquiryRateLimits"
+import { EmailSecrets } from "./payload/collections/EmailSecrets"
 
 import { SiteSettings } from "./payload/globals/SiteSettings"
 import { Navigation } from "./payload/globals/Navigation"
@@ -24,6 +27,7 @@ import { AboutPage } from "./payload/globals/AboutPage"
 import { ContactPage } from "./payload/globals/ContactPage"
 import { ListingPages } from "./payload/globals/ListingPages"
 import { SiteLabels } from "./payload/globals/SiteLabels"
+import { EmailSettings } from "./payload/globals/EmailSettings"
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -55,6 +59,9 @@ export default buildConfig({
     Categories,
     Authors,
     Redirects,
+    Inquiries,
+    InquiryRateLimits,
+    EmailSecrets,
   ],
   globals: [
     SiteSettings,
@@ -64,6 +71,7 @@ export default buildConfig({
     ContactPage,
     ListingPages,
     SiteLabels,
+    EmailSettings,
   ],
   editor: lexicalEditor(),
   secret: env.PAYLOAD_SECRET,

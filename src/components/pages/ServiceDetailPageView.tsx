@@ -63,7 +63,7 @@ export function ServiceDetailPageView({ lang, service, labels }: ServiceDetailPa
       nav: labels.nextStepNav,
       eyebrow: service.nextEyebrow,
       heading: service.nextHeading,
-      body: labels.discussProject ? <Action to={`${prefix}/contact`}>{labels.discussProject}</Action> : null,
+      body: labels.discussProject ? <Action to={`${prefix}/contact?type=project&service=${encodeURIComponent(service.slug)}`}>{labels.discussProject}</Action> : null,
       hasContent: Boolean(service.nextHeading),
     },
   ].filter((section) => section.hasContent)

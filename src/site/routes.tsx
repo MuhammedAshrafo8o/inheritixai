@@ -317,8 +317,8 @@ export async function ContactRoute({ locale }: { locale: Locale }) {
     <ContactPageView
       lang={locale}
       contact={contact}
-      products={products.map((p) => p.name).filter(Boolean)}
-      services={services.map((s) => s.title).filter(Boolean)}
+      products={products.filter((p) => p.name && p.slug).map((p) => ({ id: String(p.id), slug: p.slug, label: p.name }))}
+      services={services.filter((s) => s.title && s.slug).map((s) => ({ id: String(s.id), slug: s.slug, label: s.title }))}
     />
   )
 }

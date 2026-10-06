@@ -103,6 +103,20 @@ export const CONTACT_FORM_COPY = {
   nameError: { en: "Please add your name.", ar: "يرجى كتابة الاسم." },
   emailError: { en: "Enter a valid work email.", ar: "أدخل بريد عمل صحيح." },
   messageError: { en: "Tell us a little about what you need.", ar: "أخبرنا قليلاً عن احتياجاتك." },
+  submittingLabel: { en: "Sending…", ar: "جارٍ الإرسال…" },
+  successTitle: { en: "Inquiry received", ar: "تم استلام استفسارك" },
+  successMessage: { en: "Thank you. Your inquiry is safely recorded and our team will review it.", ar: "شكرًا لك. تم تسجيل استفسارك بأمان وسيراجعه فريقنا." },
+  referenceLabel: { en: "Reference", ar: "الرقم المرجعي" },
+  validationSummary: { en: "Please review the highlighted fields.", ar: "يرجى مراجعة الحقول المحددة." },
+  rateLimitedMessage: { en: "Too many inquiries were sent recently. Please wait and try again.", ar: "تم إرسال عدد كبير من الاستفسارات مؤخرًا. يرجى الانتظار والمحاولة مرة أخرى." },
+  temporaryFailureMessage: { en: "We could not record your inquiry right now. Your entries are preserved; please try again.", ar: "تعذر تسجيل استفسارك الآن. تم الاحتفاظ بالبيانات؛ يرجى المحاولة مرة أخرى." },
+  conflictMessage: { en: "This submission changed while it was being retried. Please start a new inquiry.", ar: "تغير هذا الاستفسار أثناء إعادة المحاولة. يرجى بدء استفسار جديد." },
+  retryLabel: { en: "Try again", ar: "حاول مرة أخرى" },
+  productRequiredError: { en: "Choose an available product.", ar: "اختر منتجًا متاحًا." },
+  serviceRequiredError: { en: "Choose an available service.", ar: "اختر خدمة متاحة." },
+  selectionUnavailableMessage: { en: "No eligible choices are available for this inquiry type right now.", ar: "لا توجد خيارات مؤهلة لهذا النوع من الاستفسار حاليًا." },
+  generalInquiryLink: { en: "Continue with a general inquiry", ar: "المتابعة باستفسار عام" },
+  honeypotLabel: { en: "Website (leave this field empty)", ar: "الموقع الإلكتروني (اترك هذا الحقل فارغًا)" },
 } satisfies Record<string, Bilingual>
 
 /** Section copy every service previously inherited from code. */

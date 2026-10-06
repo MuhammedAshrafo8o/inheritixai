@@ -53,7 +53,8 @@ export const ContactPage: GlobalConfig = {
       defaultValue:
         "Online submission endpoint and email routing are scheduled for Milestone Three. Please contact us directly at hello@inheritix.com for active inquiries.",
       admin: {
-        description: "Truthful boundary notice regarding form submissions in Milestone Two.",
+        hidden: true,
+        description: "Legacy Milestone Two notice; retained for data compatibility and no longer rendered.",
       },
     },
     {
@@ -61,13 +62,18 @@ export const ContactPage: GlobalConfig = {
       type: "group",
       admin: {
         description:
-          "Contact form copy. Product and service choices come from published Products and Services. Submission handling arrives in Milestone Three.",
+          "Contact form copy. Product and service choices come from published Products and Services; submissions are handled by the protected inquiry endpoint.",
       },
       fields: (Object.keys(CONTACT_FORM_COPY) as Array<keyof typeof CONTACT_FORM_COPY>).map((name) => ({
         name,
         type: "text" as const,
         localized: true,
         defaultValue: CONTACT_FORM_COPY[name].en,
+        required: !new Set(["namePlaceholder", "emailPlaceholder", "messagePlaceholder"]).has(name),
+        validate: (value: unknown) => {
+          if (new Set(["namePlaceholder", "emailPlaceholder", "messagePlaceholder"]).has(name)) return true
+          return typeof value === "string" && value.trim() ? true : "This operational form label or message is required in each locale."
+        },
       })),
     },
     seoField(),

@@ -22,7 +22,11 @@
     "test:content-controls": "node scripts/payload.mjs run scripts/content-controls-check.ts",
     "test:localized-visibility-db": "node scripts/payload.mjs run scripts/localized-visibility-migration-check.ts",
     "test:payload-wrapper": "node scripts/payload-wrapper-check.mjs",
-    "test:restore-fixtures": "node scripts/payload.mjs run scripts/restore-fixture-check.ts"
+    "test:restore-fixtures": "node scripts/payload.mjs run scripts/restore-fixture-check.ts",
+    "worker:inquiries": "node scripts/payload.mjs run scripts/inquiry-worker.ts",
+    "worker:inquiries:once": "node scripts/payload.mjs run scripts/inquiry-worker-once.ts",
+    "test:migrations:m3": "node scripts/with-disposable-postgres.mjs node scripts/migration-verification.mjs",
+    "test:inquiries": "node node_modules/.pnpm/tsx@4.22.4/node_modules/tsx/dist/cli.mjs scripts/inquiries-check.ts"
   },
   "dependencies": {
     "@payloadcms/db-postgres": "3.90.2",
@@ -31,16 +35,20 @@
     "@payloadcms/ui": "3.90.2",
     "graphql": "^16.11.0",
     "next": "15.4.11",
+    "nodemailer": "7.0.0",
     "payload": "3.90.2",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "sharp": "0.34.5"
   },
   "devDependencies": {
+    "@embedded-postgres/windows-x64": "16.14.0-beta.17",
     "@tailwindcss/postcss": "^4.1.14",
     "@types/node": "^22.18.6",
+    "@types/nodemailer": "7.0.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
+    "embedded-postgres": "16.14.0-beta.17",
     "oxfmt": "^0.2.0",
     "tailwindcss": "^4.1.14",
     "typescript": "^5.9.2"

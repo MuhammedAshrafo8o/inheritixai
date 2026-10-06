@@ -94,7 +94,7 @@ export async function up({ db, payload, req }: MigrateUpArgs): Promise<void> {
   ALTER TABLE "site_labels_locales" ADD COLUMN "error_retry" varchar DEFAULT 'Try again';`)
 
   // Store starter copy where the site previously relied on code fallbacks.
-  await backfillContentControls({ payload, req })
+  await backfillContentControls({ payload, req, db })
 }
 
 export async function down({ db, payload, req }: MigrateDownArgs): Promise<void> {

@@ -192,7 +192,7 @@ async function runPayloadCli() {
   })
   // Keep the loop alive during preparation and CLI execution so an early event-loop drain
   // is reported as a preparation timeout rather than false success.
-  setInterval(() => {}, 1 << 30)
+  const keepAlive = setInterval(() => {}, 1 << 30)
 
   try {
     const { bin } = await loadPayloadBin()
@@ -202,7 +202,13 @@ async function runPayloadCli() {
     // acknowledgment before calling bin().
     await requestExecutionPermission()
     await bin()
+    clearInterval(keepAlive)
+    // Payload commands can leave database pool handles open after bin()
+    // resolves. At this point the command has completed successfully, so exit
+    // explicitly instead of mistaking those handles for continuing CLI work.
+    process.exit(0)
   } catch (error) {
+    clearInterval(keepAlive)
     console.error(error)
     process.exit(1)
   }

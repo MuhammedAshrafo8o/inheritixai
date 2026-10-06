@@ -30,7 +30,7 @@ export function ProductDetailPageView({ lang, product, labels }: ProductDetailPa
         {product.badge && <span className="eyebrow">{product.badge}</span>}
         <h1>{product.heroHeadline}</h1>
         {product.heroDescription && <p>{product.heroDescription}</p>}
-        {labels.requestDemo && <Action to={`${prefix}/contact?type=demo`}>{labels.requestDemo}</Action>}
+        {labels.requestDemo && <Action to={`${prefix}/contact?type=demo&product=${encodeURIComponent(product.slug)}`}>{labels.requestDemo}</Action>}
       </section>
 
       <div className="product-hero-visual">

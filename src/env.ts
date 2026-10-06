@@ -15,6 +15,14 @@ export interface ServerEnv {
   IS_PRODUCTION: boolean
   /** Explicit opt-in for illustrative project fixtures (never in production). */
   DEV_FIXTURES: boolean
+  /** 32-byte base64 key used only for SMTP credential encryption. */
+  EMAIL_ENCRYPTION_KEY: string | undefined
+  /** HMAC key for privacy-preserving inquiry rate-limit buckets. */
+  INQUIRY_IP_HASH_KEY: string
+  /** Number of trusted reverse proxies immediately in front of the app. */
+  TRUSTED_PROXY_HOPS: number
+  /** Development-only opt-in for a loopback, plaintext SMTP capture server. */
+  ALLOW_INSECURE_LOCAL_SMTP: boolean
 }
 
 const PLACEHOLDER_PATTERN = /replace-with|changeme|change-me|default-.*-secret|development-only/i
@@ -40,6 +48,15 @@ function validateSecret(name: string, value: string | undefined, problems: strin
     problems.push(`${name} still contains a placeholder value; generate a random secret.`)
   } else if (value.length < MIN_SECRET_LENGTH) {
     problems.push(`${name} must be at least ${MIN_SECRET_LENGTH} characters.`)
+  }
+}
+
+function validEncryptionKey(value: string | undefined) {
+  if (!value) return false
+  try {
+    return Buffer.from(value, "base64").length === 32
+  } catch {
+    return false
   }
 }
 
@@ -80,6 +97,34 @@ export function getServerEnv(): ServerEnv {
     problems.push("INHERITIX_DEV_FIXTURES must not be enabled in production.")
   }
 
+  const emailEncryptionKey = process.env.EMAIL_ENCRYPTION_KEY?.trim() || undefined
+  if (isProduction && !validEncryptionKey(emailEncryptionKey)) {
+    problems.push("EMAIL_ENCRYPTION_KEY is required in production and must decode to exactly 32 bytes.")
+  } else if (emailEncryptionKey && !validEncryptionKey(emailEncryptionKey)) {
+    problems.push("EMAIL_ENCRYPTION_KEY must be base64 that decodes to exactly 32 bytes.")
+  }
+
+  const inquiryIpHashKey = process.env.INQUIRY_IP_HASH_KEY?.trim() || payloadSecret || ""
+  if (isProduction && !process.env.INQUIRY_IP_HASH_KEY?.trim()) {
+    problems.push("INQUIRY_IP_HASH_KEY is required in production and must be distinct from PAYLOAD_SECRET.")
+  } else if (process.env.INQUIRY_IP_HASH_KEY?.trim()) {
+    validateSecret("INQUIRY_IP_HASH_KEY", inquiryIpHashKey, problems)
+    if (inquiryIpHashKey === payloadSecret) {
+      problems.push("INQUIRY_IP_HASH_KEY must be distinct from PAYLOAD_SECRET.")
+    }
+  }
+
+  const trustedProxyRaw = process.env.INHERITIX_TRUSTED_PROXY_HOPS?.trim() || "0"
+  const trustedProxyHops = Number(trustedProxyRaw)
+  if (!Number.isInteger(trustedProxyHops) || trustedProxyHops < 0 || trustedProxyHops > 10) {
+    problems.push("INHERITIX_TRUSTED_PROXY_HOPS must be an integer from 0 to 10.")
+  }
+
+  const allowInsecureLocalSmtp = process.env.INHERITIX_ALLOW_INSECURE_LOCAL_SMTP === "true"
+  if (isProduction && allowInsecureLocalSmtp) {
+    problems.push("INHERITIX_ALLOW_INSECURE_LOCAL_SMTP must not be enabled in production.")
+  }
+
   if (problems.length > 0) throw new EnvironmentConfigError(problems)
 
   cached = {
@@ -89,6 +134,10 @@ export function getServerEnv(): ServerEnv {
     PREVIEW_SECRET: previewSecret,
     IS_PRODUCTION: isProduction,
     DEV_FIXTURES: devFixtures && !isProduction,
+    EMAIL_ENCRYPTION_KEY: emailEncryptionKey,
+    INQUIRY_IP_HASH_KEY: inquiryIpHashKey,
+    TRUSTED_PROXY_HOPS: Number.isInteger(trustedProxyHops) ? trustedProxyHops : 0,
+    ALLOW_INSECURE_LOCAL_SMTP: allowInsecureLocalSmtp && !isProduction,
   }
   return cached
 }

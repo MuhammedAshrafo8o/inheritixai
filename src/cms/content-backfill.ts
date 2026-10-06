@@ -1,3 +1,4 @@
+import { sql } from "@payloadcms/db-postgres"
 import type { Payload, PayloadRequest } from "payload"
 import {
   ARTICLE_CTA_COPY,
@@ -9,7 +10,8 @@ import {
   arabicOf,
 } from "../content/starter-copy"
 
-type Args = { payload: Payload; req: PayloadRequest }
+/** `db` is the migration's transaction (required: tables are locked by its ALTERs). */
+type Args = { payload: Payload; req: PayloadRequest; db: { execute: (query: ReturnType<typeof sql>) => Promise<unknown> } }
 const context = { disableRevalidate: true }
 const isEmpty = (value: unknown) => value === null || value === undefined || (typeof value === "string" && !value.trim())
 
@@ -23,7 +25,16 @@ const isEmpty = (value: unknown) => value === null || value === undefined || (ty
  * nothing an editor entered is overwritten. New label columns receive their
  * English text through column defaults, so Arabic rows are set here.
  */
-export async function backfillContentControls({ payload, req }: Args) {
+export async function backfillContentControls({ payload, req, db }: Args) {
+  // A fresh database has nothing to backfill (the seed writes this copy). Check
+  // with plain SQL: the Payload API reads with the *current* schema, which
+  // later migrations may have changed, so it can fail mid-chain on new DBs.
+  const existing = (await db.execute(sql`
+    SELECT (SELECT count(*) FROM site_labels) + (SELECT count(*) FROM page_contact)
+         + (SELECT count(*) FROM listing_pages) + (SELECT count(*) FROM services)
+         + (SELECT count(*) FROM products) AS n`)) as unknown as { rows?: Array<{ n: string | number }> }
+  if (Number(existing.rows?.[0]?.n ?? 0) === 0) return
+
   const globalExists = async (slug: "site-labels" | "page-contact" | "listing-pages") =>
     Boolean(((await payload.db.findGlobal({ slug, req })) as { id?: unknown })?.id)
 

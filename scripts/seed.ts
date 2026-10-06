@@ -1062,6 +1062,19 @@ async function seedGlobals() {
       changeLanguage: "التغيير إلى الإنجليزية",
     }),
   )
+
+  // Private operational settings are created only when missing. Notifications
+  // deliberately start disabled and no credentials or recipient are invented.
+  await initGlobal("email-settings" as never, {
+    notificationsEnabled: false,
+    smtpPort: 587,
+    encryptionMode: "starttls",
+    passwordConfigured: false,
+    submissionLimitPerHour: 10,
+    adminTestLimitPerHour: 5,
+    lastConnectionTestStatus: "never",
+    lastTestEmailStatus: "never",
+  })
 }
 
 // ─── Run ────────────────────────────────────────────────────────────────────
