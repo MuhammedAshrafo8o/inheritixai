@@ -21,7 +21,7 @@ Milestone Three adds durable public inquiries, administrator-only inquiry manage
 
 ### Global
 
-- `email-settings`: administrator-only SMTP host, port, TLS mode, username, password replace/clear controls, sender, recipient, throttling values, and sanitized connection/test outcomes. Editors and anonymous callers are denied server-side. The `smtpPassword` field is rendered using a dedicated masked password field (`MaskedPasswordField`), which uses `type="password"`, never preloads or returns the stored secret to the browser, clears the entered secret from form memory after saving, and preserves masking while typing.
+- `email-settings`: administrator-only SMTP host, port, TLS mode, username, password replace/clear controls, sender, recipient, throttling values, and sanitized connection/test outcomes. Editors and anonymous callers are denied server-side. The `smtpPassword` field is rendered using a dedicated masked password field (`MaskedPasswordField`), which uses `type="password"`, never preloads or returns the stored secret to the browser, and preserves masking while typing. Source review confirms that the component clears its local value when Payload reports a new document update time; the browser check in this milestone verifies masking and the initially empty value, not a successful save/clear round trip.
 
 Submitted identity, message, selection, locale, source, and timestamps are immutable in ordinary admin/API updates. Notification fields and delivery history are writable only by system-scoped worker/retry operations. Internal notes are append-only and receive the authenticated administrator identity snapshot and timestamp server-side.
 
@@ -52,7 +52,7 @@ Response codes include `RECEIVED` (201 or idempotent 200), `INVALID_INPUT` (400)
 
 - `POST /api/admin/email/verify`: verifies SMTP connection/authentication without sending.
 - `POST /api/admin/email/test`: sends only to the configured administrative recipient and reports SMTP acceptance, not inbox delivery.
-- `POST /api/admin/inquiries/:id/retry`: conditionally and atomically resets a notification in `failed` or `uncertain` state to `pending`. Uses a transactional row update with a conditional transition clause (`WHERE state IN ('failed', 'uncertain')`), preventing concurrent retry requests from corrupting rows that are already `pending`, `processing`, or `accepted`. If the notification is currently `uncertain`, an explicit `acknowledgeDuplicate: true` payload parameter is required from the administrator acknowledging possible duplicate delivery. Concurrent losers receive HTTP 409 conflict, and database/configuration errors are never mapped to "not found". State is automatically refreshed in the admin UI upon completion.
+- `POST /api/admin/inquiries/:id/retry`: atomically resets an eligible notification to `pending`. Inside one PostgreSQL transaction it selects the inquiry with `SELECT ... FOR UPDATE`, checks the locked row is still `failed` or `uncertain`, updates that locked ID, and inserts the `manual-retry` audit event before commit. The `UPDATE` is by ID and does not contain a second status predicate; safety comes from the preceding row lock plus the state check in the same transaction. If the locked state is `uncertain`, `acknowledgeDuplicate: true` is required. A concurrent loser acquires the lock after the winner commits, observes `pending`, and receives HTTP 409. Database/configuration errors are not mapped to 404, and the admin UI refreshes the displayed state after completion.
 
 All require an authenticated administrator plus a same-origin request and use PostgreSQL-backed rate limits where applicable.
 
@@ -76,12 +76,12 @@ SMTP configuration and credential decryption are not part of submission persiste
 
 Workers claim with PostgreSQL `FOR UPDATE SKIP LOCKED`. Processing older than 15 minutes becomes `uncertain` and is not automatically resent.
 
-### Transport-Stage and Failure Classification
+### Message-stream signal and failure classification
 
-Transport stages are reliably monitored using Nodemailer's stream pipeline hooks (`init` -> `envelope` -> `streaming` -> `data-transmitted`). Failure outcomes are classified as follows:
+The tracker begins at `pre-data`. A Nodemailer `stream` plugin wraps the source message stream: creating that stream sets `data-transmitting`, and the source stream's `end` event sets `data-transmitted`. This does **not** directly observe SMTP protocol initialization, the envelope exchange, bytes arriving at the remote server, or remote acceptance. `accepted` is set only after `sendMail()` resolves and reports an accepted recipient. Failure outcomes are classified as follows:
 - **Known pre-delivery transient failure**: bounded exponential delays of 60, 120, 240, 480, then up to 3,600 seconds, with five attempts maximum (`retry-wait`).
 - **Explicit permanent rejection (5xx / auth / config)**: stops immediately (`failed`).
-- **Potential acceptance with missing final acknowledgment**: connection drop, reset, or timeout occurring after DATA streaming has completed (`stage === 'data-transmitted'`) is marked as `uncertain` (`uncertain-data-transmitted`) rather than transient. Workers do **not** automatically resend these messages.
+- **Ambiguous failure after the source stream ended**: a connection failure after the message source stream's `end` event is conservatively marked `uncertain` (`uncertain-data-transmitted`). The signal does not prove remote receipt or acceptance; it only establishes that enough client-side progress occurred that an automatic resend could duplicate delivery. Workers do **not** automatically resend these messages.
 - **Confirmed SMTP acceptance followed by database write failure**: if the message was accepted with 250 OK but writing the result to PostgreSQL fails, the subsequent worker run or recovery treats it as `uncertain` rather than resending.
 
 SMTP cannot provide exactly-once delivery across the crash window between server acceptance and the database update. That window is deliberately surfaced as `uncertain`; an administrator decides whether to retry via the protected retry action, explicitly acknowledging potential duplicate delivery (`acknowledgeDuplicate: true`).
@@ -148,13 +148,14 @@ Alternatively schedule `npm run worker:inquiries:once` every minute with overlap
 ## Review corrections delivered
 
 1. **Atomic manual notification retry**:
-   - Replaced status read followed by unconditional update with a transactional row lock and conditional transition check (`WHERE state IN ('failed', 'uncertain')`).
+   - Uses `SELECT ... FOR UPDATE`, evaluates the status from the locked row, updates that row by ID, and appends the audit event in the same transaction. The `UPDATE` itself has no status predicate.
    - Concurrent retry requests cannot reset a notification that is already `pending`, `processing`, or `accepted`.
    - Requeuing to `pending`, resetting attempt counts, and appending the retry audit event occur atomically.
    - Losing retry receives HTTP 409 conflict; database/configuration failures are never masked as 404.
    - For `uncertain` notifications, requires an explicit `acknowledgeDuplicate: true` parameter acknowledging potential duplicate delivery.
    - Automatically refreshes the displayed notification state after action completion.
-   - Interleaved worker claim race test proves a concurrent retry cannot requeue a processing notification or cause duplicate sending.
+   - The regression holds the row with an independent transaction, starts two authenticated retry requests, and waits until `pg_stat_activity` shows two distinct route connections blocked on the marked retry lock query. Releasing the barrier yields one 200 winner and one 409 loser; this replaces the old sequential state-rejection check.
+   - A separate internal-only test barrier pauses `processNextInquiryNotification` immediately after the production worker claim. A stale retry observes `processing` and returns 409; releasing the worker produces exactly one captured SMTP message, one attempt, one manual-retry event, and one accepted event.
 
 2. **Strict bounded stream consumption**:
    - Replaced unbounded buffer reading with chunked streaming byte consumption in `POST /api/inquiries`.
@@ -163,11 +164,11 @@ Alternatively schedule `npm run worker:inquiries:once` every minute with overlap
    - Verified chunked stream without `Content-Length` exceeding 32 KiB, exact 32,768 byte boundary (accepted), and 32,769 byte boundary (rejected 413).
 
 3. **Ambiguous SMTP outcomes**:
-   - Reliable Nodemailer stream pipeline tracking captures stage transitions (`init` -> `envelope` -> `streaming` -> `data-transmitted`).
-   - If the connection drops or times out after DATA transmission before final 250 acknowledgment, inquiry is classified as `uncertain` (`uncertain-data-transmitted`) rather than transient.
+   - The Nodemailer stream plugin observes only source-message stream creation and end (`pre-data` -> `data-transmitting` -> `data-transmitted`); it does not observe protocol init/envelope stages or prove that a remote server received the source bytes.
+   - If transport fails after the source stream ends, the worker conservatively classifies the result as `uncertain` (`uncertain-data-transmitted`) rather than risking an automatic duplicate.
    - Workers do not automatically resend `uncertain` notifications.
    - Database write failure after confirmed SMTP 250 OK is also classified as `uncertain`.
-   - Verified with local socket dropped immediately after complete message DATA transmission.
+   - Verified with the local capture socket closing after it received the SMTP DATA terminator; this exercises the conservative classification but is not evidence of external-provider acceptance or inbox delivery.
 
 4. **ContactForm interaction and request identity**:
    - Submitting state disables form fieldset and navigation tabs with `aria-busy="true"`, preventing tab switching and rapid repeated submissions while a request is in flight.
@@ -175,7 +176,7 @@ Alternatively schedule `npm run worker:inquiries:once` every minute with overlap
    - Preserves entered form values across recoverable failures.
    - Unchanged network retry retains the exact same idempotency key and payload.
    - Editing any input automatically rotates the idempotency key, avoiding unnecessary 409 conflicts.
-   - Full keyboard accessibility and English/Arabic RTL layouts preserved.
+   - A headless-browser check uses a trusted DevTools keyboard activation event and verifies that the validation alert appears and focus moves to the first invalid field. This is keyboard submission evidence, not a claim that every tab-navigation path was manually exercised.
 
 5. **Nodemailer dependency update**:
    - Upgraded from pinned `7.0.0` to `10.0.15` in `package.json` and synchronized `pnpm-lock.yaml`.
@@ -184,12 +185,14 @@ Alternatively schedule `npm run worker:inquiries:once` every minute with overlap
 
 6. **Masked SMTP password entry**:
    - Implemented `MaskedPasswordField` (`src/payload/admin/MaskedPasswordField.tsx`) for `smtpPassword` in `EmailSettings`.
-   - Renders with `type="password"`, never preloads the stored secret, clears from form state upon saving, and preserves masking while typing (verified via headless browser typing inspection).
+   - Renders with `type="password"`, never preloads the stored secret, and preserves masking while typing (verified via headless browser inspection). Clearing after a successful save is source-reviewed but was not exercised by that typing-only browser check.
 
 7. **Portable test tooling & complete fixture regression**:
    - Removed unconditional `npm.cmd` invocations in migration/verification runners.
    - Replaced hardcoded `.pnpm` tsx paths with standard package declarations.
    - Configured optional platform-specific `@embedded-postgres` dependencies (`@embedded-postgres/linux-x64` alongside `@embedded-postgres/windows-x64`).
+   - Browser discovery accepts `CHROME_PATH`, checks common Chrome/Chromium/Edge locations on Windows and Linux, validates executability, and fails nonzero on startup, navigation, login, missing-field, or required-check failures. It does not disable the browser sandbox.
+   - Disposable PostgreSQL runs generate temporary database, admin/editor, Payload, preview, encryption, and HMAC credentials in process memory, pass them through the child environment, and never use normal development credentials.
    - Content-control test suite equipped with self-contained published project and legacy redirect fixture provisioning and parameterized restoration.
 
 ---
@@ -197,16 +200,14 @@ Alternatively schedule `npm run worker:inquiries:once` every minute with overlap
 ## Verification boundaries and results
 
 ### 1. Source review
-- Every modified file adheres to strict TypeScript typing, clean error classification, and defensive concurrency patterns.
-- No secrets or credentials committed to Git.
+- The final diff was reviewed for unrelated files, generated test artifacts, browser/profile paths, and credential literals.
+- The browser test has no fallback account password. Disposable database and administrator/editor passwords are generated per run and remain in process memory/environment.
 - Figma Make design tokens, typography, motion reveals, and bilingual RTL layouts remain intact.
 
-### 2. Automated local execution
-Environment: Node 22, Payload 3.90.2, real disposable PostgreSQL 16 cluster (`embedded-postgres`), and loopback SMTP capture. No real external services or email providers were contacted.
+### 2. Automated local execution for the four review corrections
+Environment actually executed: Microsoft Windows NT `10.0.26100.0`, Node `v22.16.0`, Chrome `154.0.8037.98`, Payload 3.90.2, disposable PostgreSQL 16 (`embedded-postgres`), and loopback SMTP capture. No real external service or email provider was contacted. Linux browser discovery was implemented and source-reviewed but was **not executed on Linux**.
 
-- `npm run test:payload-wrapper`: **PASS, 4/4** execution-boundary scenarios.
-- `npm run test:migrations:m3`: **PASS**; all 6 versioned migrations applied to an empty PostgreSQL 16 database, status confirmed all 6 applied, strict drift check generated 0 files / 0 schema drift, and temporary cluster cleaned up.
-- `npm run test:inquiries`: **PASS, 47/47 checks**:
+- `node scripts/with-disposable-postgres.mjs npx.cmd tsx scripts/inquiries-check.ts` â€” **exit 0, 50/50 checks passed**:
   - Bilingual contact copy & accessible fieldset protection (English & Arabic RTL).
   - All 6 inquiry permutations durable (project, demo, general × en, ar).
   - High concurrency idempotency uniqueness (1 winner, identical committed reference).
@@ -217,14 +218,15 @@ Environment: Node 22, Payload 3.90.2, real disposable PostgreSQL 16 cluster (`em
   - SMTP disabled preserves inquiry without outbox backlog.
   - SMTP transient failure schedules bounded exponential retry.
   - Concurrent worker row locking (`FOR UPDATE SKIP LOCKED`).
-  - Ambiguous post-DATA SMTP connection drop classified as `uncertain` (`uncertain-data-transmitted`) without automatic resends.
+  - When the local capture server closes after receiving the DATA terminator and the source stream has ended, the worker conservatively records `uncertain-data-transmitted` and does not automatically resend.
   - Abandoned worker processing older than 15m becomes `uncertain`.
   - Role-based access control: anonymous/editor inquiry and secret access denied (403); administrator allowed (200).
-  - Atomic manual retry: uncertain notification without duplicate acknowledgment rejected with 409; with `acknowledgeDuplicate: true` queues pending retry.
-  - Interleaved retry while notification is processing rejected with 409 conflict, preserving worker processing state.
+  - Uncertain notification without duplicate acknowledgment rejected with 409.
+  - Two retry requests were observed concurrently blocked on the same row through two distinct PostgreSQL connection PIDs; after barrier release, exactly one returned 200 and one returned 409, with one pending transition and one retry event.
+  - The production worker claim was paused by an internal-only barrier; the overlapping stale retry returned 409, then the worker completed with one SMTP capture, one attempt, one retry event, and one accepted event.
   - Immutable visitor source data and database-failure 503 response.
-- `npm run test:regression`: **PASS**:
-  - Browser interaction checks (`scripts/contact-form-browser-check.mjs` via Chrome CDP): **11/11 passed**:
+- `node scripts/with-disposable-postgres.mjs node scripts/run-regression-suite.mjs` â€” **exit 0**:
+  - Browser interaction checks (`scripts/contact-form-browser-check.mjs` via Chrome CDP): **12/12 required checks passed**:
     - Submitting state sets `aria-busy` and disables fieldset and buttons.
     - Tab switching blocked while request is pending.
     - Rapid repeated clicks do not dispatch duplicate requests.
@@ -232,7 +234,8 @@ Environment: Node 22, Payload 3.90.2, real disposable PostgreSQL 16 cluster (`em
     - Unchanged retry retains identical idempotency key.
     - Edited submission generates new idempotency key.
     - Successful submission displays contact confirmation with public reference.
-    - Keyboard validation error focuses first invalid input with alert semantics.
+    - Trusted browser keyboard submission displays the validation alert and focuses the first invalid input.
+    - Generated disposable administrator authentication succeeds.
     - `smtpPassword` field renders with `type="password"`.
     - Stored password is never preloaded.
     - Masking preserved while typing.
@@ -244,8 +247,17 @@ Environment: Node 22, Payload 3.90.2, real disposable PostgreSQL 16 cluster (`em
     - Contact form labels and published choices.
     - Permanent 308 redirect enforcement, rejection of 301, and legacy 301 migration.
     - Complete restoration and self-verification of pre-test state.
-- `npm run typecheck`: **PASS** (0 TypeScript errors).
-- `npm run test:build` / `npm run build`: **PASS**; Next.js compiled successfully and generated 22 static pages and all dynamic routes without insecure SMTP test flags.
+- `npm.cmd run typecheck` â€” **exit 0**, 0 TypeScript errors.
+- `npm.cmd run build` â€” compilation and type validation succeeded, then the command **exited 1** during prerender because the developer `.env.local` points to an inactive PostgreSQL instance at `127.0.0.1:5433`; this was an environment failure, not recorded as a passing build.
+- `npm.cmd run test:build` â€” **exit 0** against a fresh disposable PostgreSQL 16 database; all six migrations applied, seed completed, Next.js compiled, and all 22 static pages were generated without the insecure local-SMTP flag.
+
+The strict failure behavior was also directly observed during harness correction: two restricted-sandbox attempts (default Chrome and explicit Edge) exited 1 with **0/12** required checks because their GPU subprocesses could not start; no SKIP was converted to a pass. A first unrestricted Chrome run exited 1 with **11/12** while the keyboard barrier was being corrected. The final unrestricted run above exited 0 with all 12 required checks and all 38 content checks. Chrome's browser sandbox was never disabled.
+
+- With ephemeral administrator environment values and `CHROME_PATH=C:\definitely-missing\chrome.exe`, `node scripts/contact-form-browser-check.mjs` exited **1** before browser startup with a clear executable-validation error. The ephemeral password is intentionally omitted from this report and was not printed by the harness.
+
+### 3. Earlier Milestone Three evidence retained, not rerun for this correction
+
+The reviewed commit `c45a2a16940e616bad812dd8c34e5e0cd27c4ea4` recorded `npm run test:payload-wrapper` at **4/4** and `npm run test:migrations:m3` with all six migrations applied and no drift. Those gates were not repeated because these four corrections do not change schema, migrations, or the Payload CLI handshake. The current regression run nevertheless applied all six migrations successfully to its fresh disposable database before testing.
 
 Representative visual evidence is preserved in `artifacts/milestone-three/`:
 - `contact-success-en-mobile.png`
@@ -255,8 +267,8 @@ Representative visual evidence is preserved in `artifacts/milestone-three/`:
 - `admin-inquiry-detail-failed-retry.png`
 - `admin-email-settings-secret-hidden.png`
 
-### 3. Unverified real-provider delivery
-Automated local tests confirm SMTP envelope formatting, credentials encryption, STARTTLS negotiation hooks, connection error trapping, post-DATA disconnect handling, and loopback capture.
+### 4. Unverified production boundaries
+Local automation confirms loopback SMTP command handling/capture, message rendering, credential encryption/redaction, connection error handling, and conservative classification after the local server receives the DATA terminator. It does **not** verify a real TLS or STARTTLS negotiation, external-provider acceptance, or inbox delivery.
 The following remain production operator responsibilities and are **not** verified in local automated runs:
 - Actual delivery of emails to an external inbox via a commercial SMTP provider (e.g., SendGrid, Postmark, AWS SES, or Google Workspace).
 - Outbound TCP egress on ports 465/587 from the production VPS / CloudPanel hosting environment.

@@ -34,7 +34,19 @@ const directory = requestedDirectory ? path.resolve(requestedDirectory) : await 
 if (!directory.startsWith(safePrefix)) throw new Error(`Refusing unexpected database path: ${directory}`)
 const reuse = Boolean(requestedDirectory)
 const port = Number(process.env.INHERITIX_TEST_PG_PORT || 55439)
-const password = "local-disposable-only"
+if (reuse && !process.env.INHERITIX_TEST_PG_PASSWORD) {
+  throw new Error("INHERITIX_TEST_PG_PASSWORD is required when reusing a disposable PostgreSQL directory.")
+}
+const password = process.env.INHERITIX_TEST_PG_PASSWORD || randomBytes(24).toString("base64url")
+const credentialNonce = randomBytes(10).toString("hex")
+const adminEmail = `admin-m3-${credentialNonce}@example.test`
+const adminPassword = `M3!${randomBytes(24).toString("base64url")}Aa1`
+const editorEmail = `editor-m3-${credentialNonce}@example.test`
+const editorPassword = `M3!${randomBytes(24).toString("base64url")}Ee1`
+const payloadSecret = randomBytes(48).toString("base64url")
+const previewSecret = randomBytes(48).toString("base64url")
+const emailEncryptionKey = randomBytes(32).toString("base64")
+const inquiryIpHashKey = randomBytes(48).toString("base64url")
 const database = "inheritix_m3_test"
 const pg = new EmbeddedPostgres({
   databaseDir: directory,
@@ -66,13 +78,19 @@ try {
     shell: process.platform === "win32" && (/\.cmd$/i.test(command) || command === "npm" || command === "npx"),
     env: {
       ...process.env,
-      DATABASE_URI: `postgresql://postgres:${password}@127.0.0.1:${port}/${database}`,
-      PAYLOAD_SECRET: process.env.PAYLOAD_SECRET || "disposable-m3-payload-secret-abcdefghijklmnopqrstuvwxyz",
-      PREVIEW_SECRET: process.env.PREVIEW_SECRET || "disposable-m3-preview-secret-abcdefghijklmnopqrstuvwxyz",
+      DATABASE_URI: `postgresql://postgres:${encodeURIComponent(password)}@127.0.0.1:${port}/${database}`,
+      PAYLOAD_SECRET: payloadSecret,
+      PREVIEW_SECRET: previewSecret,
       NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:8443",
-      EMAIL_ENCRYPTION_KEY: process.env.EMAIL_ENCRYPTION_KEY || randomBytes(32).toString("base64"),
-      INQUIRY_IP_HASH_KEY: process.env.INQUIRY_IP_HASH_KEY || randomBytes(48).toString("base64url"),
+      EMAIL_ENCRYPTION_KEY: emailEncryptionKey,
+      INQUIRY_IP_HASH_KEY: inquiryIpHashKey,
       INHERITIX_TRUSTED_PROXY_HOPS: "1",
+      INHERITIX_ADMIN_EMAIL: adminEmail,
+      INHERITIX_ADMIN_PASSWORD: adminPassword,
+      INHERITIX_ADMIN_NAME: "Disposable M3 Administrator",
+      INHERITIX_EDITOR_EMAIL: editorEmail,
+      INHERITIX_EDITOR_PASSWORD: editorPassword,
+      INHERITIX_EDITOR_NAME: "Disposable M3 Editor",
       ...(args.includes("build") ? {} : { INHERITIX_ALLOW_INSECURE_LOCAL_SMTP: process.env.INHERITIX_ALLOW_INSECURE_LOCAL_SMTP || "true" }),
     },
   })

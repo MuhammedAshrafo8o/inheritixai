@@ -50,6 +50,15 @@ async function claim(payload: Payload) {
   return rowsOf<{ id: number | string }>(result)[0]?.id
 }
 
+/**
+ * Internal synchronization seam for database-backed worker race tests. It is
+ * deliberately available only to direct server-side callers of this module;
+ * no route, Payload API, or worker command exposes it.
+ */
+export interface InquiryWorkerTestHooks {
+  afterClaim?: (id: number | string) => Promise<void>
+}
+
 export function messageFor(doc: Record<string, unknown>) {
   const reference = String(doc.publicReference || "")
   const type = String(doc.inquiryType || "")
@@ -76,10 +85,11 @@ function withEvent(doc: Record<string, unknown>, data: Record<string, unknown>, 
   return { ...data, notificationEvents: [...previous, { occurredAt: new Date().toISOString(), status, code: code || undefined }] }
 }
 
-export async function processNextInquiryNotification(provided?: Payload) {
+export async function processNextInquiryNotification(provided?: Payload, testHooks?: InquiryWorkerTestHooks) {
   const payload = provided ?? await getPayloadClient()
   const id = await claim(payload)
   if (!id) return { processed: false as const }
+  await testHooks?.afterClaim?.(id)
   const doc = await payload.findByID({ collection: "inquiry-records" as never, id, overrideAccess: true, depth: 0 }) as unknown as Record<string, unknown>
   const attempts = Number(doc.notificationAttempts || 1)
   let smtpAccepted = false

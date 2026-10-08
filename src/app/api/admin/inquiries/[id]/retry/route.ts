@@ -48,6 +48,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
 
     const result = await payload.db.drizzle.transaction(async (tx) => {
       const rowsResult = await tx.execute(sql`
+        /* inheritix-admin-retry-lock */
         SELECT id, notification_status AS "notificationStatus"
         FROM "inquiry_records"
         WHERE id = ${numericId}

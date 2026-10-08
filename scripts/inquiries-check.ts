@@ -19,6 +19,12 @@ const check = (name: string, ok: unknown, detail?: unknown) => {
   console.log(`${ok ? "PASS" : "FAIL"} ${name}${detail == null ? "" : ` — ${detail}`}`)
 }
 const payload = await getPayload({ config })
+const testRunId = randomUUID().slice(0, 12)
+const adminEmail = process.env.INHERITIX_ADMIN_EMAIL || `admin-m3-${testRunId}@example.test`
+const adminPassword = process.env.INHERITIX_ADMIN_PASSWORD || `M3-${randomUUID()}-Aa1!`
+const editorEmail = process.env.INHERITIX_EDITOR_EMAIL || `editor-m3-${testRunId}@example.test`
+const editorPassword = process.env.INHERITIX_EDITOR_PASSWORD || `M3-${randomUUID()}-Ee1!`
+const smtpTestPassword = `M3-${randomUUID()}-Ss1!`
 
 // This suite is destructive by design and must only target its documented
 // disposable database. Reset Milestone Three operational rows for repeatability.
@@ -29,19 +35,19 @@ try {
   console.log("[test:inquiries] migrate note:", err instanceof Error ? err.message : String(err))
 }
 
-const existingAdmin = (await payload.find({ collection: "users", where: { email: { equals: "admin-m3@example.test" } }, overrideAccess: true, limit: 1 })).docs[0]
+const existingAdmin = (await payload.find({ collection: "users", where: { email: { equals: adminEmail } }, overrideAccess: true, limit: 1 })).docs[0]
 if (!existingAdmin) {
   await payload.create({
     collection: "users",
-    data: { email: "admin-m3@example.test", password: "M3-Admin-Verification-2026!", name: "Admin M3", roles: ["admin"] },
+    data: { email: adminEmail, password: adminPassword, name: "Admin M3", roles: ["admin"] },
     overrideAccess: true,
   })
 }
-const existingEditor = (await payload.find({ collection: "users", where: { email: { equals: "editor-m3@example.test" } }, overrideAccess: true, limit: 1 })).docs[0]
+const existingEditor = (await payload.find({ collection: "users", where: { email: { equals: editorEmail } }, overrideAccess: true, limit: 1 })).docs[0]
 if (!existingEditor) {
   await payload.create({
     collection: "users",
-    data: { email: "editor-m3@example.test", password: "M3-Editor-Verification-2026!", name: "Editor M3", roles: ["editor"] },
+    data: { email: editorEmail, password: editorPassword, name: "Editor M3", roles: ["editor"] },
     overrideAccess: true,
   })
 }
@@ -118,7 +124,7 @@ await payload.updateGlobal({
   overrideAccess: true,
   data: {
     notificationsEnabled: true, smtpHost: "127.0.0.1", smtpPort: SMTP_PORT,
-    encryptionMode: "none", smtpUsername: "", smtpPassword: "m3-local-capture-password",
+    encryptionMode: "none", smtpUsername: "", smtpPassword: smtpTestPassword,
     senderName: "Inheritix Website", senderEmail: "notifications@example.test",
     notificationRecipient: "operations@example.test", submissionLimitPerHour: 100, adminTestLimitPerHour: 20,
   },
@@ -205,6 +211,54 @@ async function submit(body: Record<string, unknown>, ip?: string) {
   const response = await api("/api/inquiries", { method: "POST", headers: requestHeaders(ip), body: JSON.stringify(body) })
   const json = await response.json().catch(() => ({})) as Record<string, unknown>
   return { response, json }
+}
+
+function rowsOf<T>(result: unknown): T[] {
+  if (Array.isArray(result)) return result as T[]
+  return ((result as { rows?: T[] })?.rows ?? [])
+}
+
+function deferred<T = void>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
+}
+
+async function withDeadline<T>(promise: Promise<T>, label: string, milliseconds = 10_000): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`Timed out waiting for ${label}`)), milliseconds)
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+async function waitForBlockedRetryConnections(expected: number) {
+  const deadline = Date.now() + 10_000
+  while (Date.now() < deadline) {
+    const result = await payload.db.drizzle.execute(sql`
+      SELECT pid
+      FROM pg_stat_activity
+      WHERE datname = current_database()
+        AND pid <> pg_backend_pid()
+        AND state = 'active'
+        AND wait_event_type = 'Lock'
+        AND query LIKE ${"%inheritix-admin-retry-lock%"}
+    `)
+    const pids = rowsOf<{ pid: number }>(result).map((row) => Number(row.pid))
+    if (new Set(pids).size >= expected) return pids
+    await new Promise<void>((resolve) => setTimeout(resolve, 25))
+  }
+  throw new Error(`Expected ${expected} independently blocked retry connections.`)
 }
 
 try {
@@ -312,8 +366,8 @@ try {
   const uncertain = await payload.findByID({ collection: "inquiry-records", id: abandonedDoc.id, overrideAccess: true, depth: 0 })
   check("abandoned processing becomes visible uncertain outcome without auto-resend", uncertain.notificationStatus === "uncertain")
 
-  const adminCookie = await login("admin-m3@example.test", "M3-Admin-Verification-2026!")
-  const editorCookie = await login("editor-m3@example.test", "M3-Editor-Verification-2026!")
+  const adminCookie = await login(adminEmail, adminPassword)
+  const editorCookie = await login(editorEmail, editorPassword)
   const anonymousPrivate = await api("/api/inquiry-records")
   const editorPrivate = await api("/api/inquiry-records", { headers: requestHeaders(undefined, editorCookie) })
   const adminPrivate = await api("/api/inquiry-records", { headers: requestHeaders(undefined, adminCookie) })
@@ -322,7 +376,7 @@ try {
   const adminSettings = await api("/api/globals/email-settings", { headers: requestHeaders(undefined, adminCookie) })
   const settingsJson = await adminSettings.json() as Record<string, unknown>
   check("editor SMTP access denied and admin allowed", !editorSettings.ok && adminSettings.ok)
-  check("SMTP plaintext and ciphertext absent from normal admin API", settingsJson.passwordConfigured === true && !("smtpPassword" in settingsJson) && !JSON.stringify(settingsJson).includes("m3-local-capture-password"))
+  check("SMTP plaintext and ciphertext absent from normal admin API", settingsJson.passwordConfigured === true && !("smtpPassword" in settingsJson) && !JSON.stringify(settingsJson).includes(smtpTestPassword))
   const adminSecrets = await api("/api/email-secrets", { headers: requestHeaders(undefined, adminCookie) })
   check("email secret collection denied even to administrator REST", !adminSecrets.ok)
 
@@ -343,44 +397,79 @@ try {
   const unackJson = await unackRetry.json() as { code?: string }
   check("retry of uncertain notification without explicit duplicate acknowledgment rejected with 409", unackRetry.status === 409 && unackJson.code === "DUPLICATE_ACKNOWLEDGMENT_REQUIRED")
 
-  // 2. First retry request with acknowledgment succeeds and transitions to pending
-  const ackRetry = await api(`/api/admin/inquiries/${dropDoc.id}/retry`, {
+  // Hold the target row, start two authenticated HTTP retries, and wait until
+  // PostgreSQL proves both independent route connections are blocked on it.
+  const blockerReady = deferred()
+  const releaseBlocker = deferred()
+  const blocker = payload.db.drizzle.transaction(async (tx) => {
+    await tx.execute(sql`SELECT id FROM "inquiry_records" WHERE id = ${Number(dropDoc.id)} FOR UPDATE`)
+    blockerReady.resolve()
+    await releaseBlocker.promise
+  })
+  await withDeadline(blockerReady.promise, "retry lock holder")
+
+  const retryOptions = {
     method: "POST",
     headers: requestHeaders(undefined, adminCookie),
     body: JSON.stringify({ acknowledgeDuplicate: true }),
-  })
-  check("retry of uncertain notification with duplicate acknowledgment queues pending retry", ackRetry.status === 200)
+  }
+  const firstRetryPromise = api(`/api/admin/inquiries/${dropDoc.id}/retry`, retryOptions)
+  const secondRetryPromise = api(`/api/admin/inquiries/${dropDoc.id}/retry`, retryOptions)
+  let blockedPids: number[] = []
+  try {
+    blockedPids = await waitForBlockedRetryConnections(2)
+  } finally {
+    releaseBlocker.resolve()
+    await blocker
+  }
+  const retryResponses = await Promise.all([firstRetryPromise, secondRetryPromise])
+  const retryBodies = await Promise.all(retryResponses.map((response) => response.json() as Promise<{ code?: string }>))
+  const retryOutcomes = retryResponses.map((response, index) => `${response.status}:${retryBodies[index]?.code}`).sort()
+  check("overlapping retry requests use independent blocked database connections", new Set(blockedPids).size >= 2, blockedPids.join(","))
+  check(
+    "concurrent retry transaction has exactly one winner and one 409 loser",
+    retryOutcomes.join(",") === "200:RETRY_QUEUED,409:INVALID_STATE",
+    retryOutcomes.join(","),
+  )
 
-  // 3. Worker claims the pending notification (transitions to processing)
-  await payload.update({
-    collection: "inquiry-records",
-    id: dropDoc.id,
-    data: { notificationStatus: "processing", notificationLockedAt: new Date().toISOString() } as never,
-    overrideAccess: true,
-    context: { inquirySystemOperation: true },
-  })
+  const queuedDoc = await payload.findByID({ collection: "inquiry-records", id: dropDoc.id, overrideAccess: true, depth: 0 })
+  const queuedEvents = Array.isArray(queuedDoc.notificationEvents) ? queuedDoc.notificationEvents : []
+  check(
+    "concurrent retry commits one pending transition and one retry audit event",
+    queuedDoc.notificationStatus === "pending" && queuedDoc.notificationAttempts === 0 && queuedEvents.filter((event) => event.status === "manual-retry").length === 1,
+  )
 
-  // 4. Interleaved second retry request while worker is processing
-  const losingRetry = await api(`/api/admin/inquiries/${dropDoc.id}/retry`, {
-    method: "POST",
-    headers: requestHeaders(undefined, adminCookie),
-    body: JSON.stringify({ acknowledgeDuplicate: true }),
+  // Pause the production worker immediately after its real atomic claim. A
+  // retry issued while that barrier is held must observe processing and lose.
+  const workerClaimed = deferred<number | string>()
+  const releaseWorker = deferred()
+  const beforeRaceMail = capture.messages.length
+  const workerPromise = processNextInquiryNotification(payload, {
+    afterClaim: async (id) => {
+      workerClaimed.resolve(id)
+      await releaseWorker.promise
+    },
   })
-  const losingJson = await losingRetry.json() as { code?: string }
-  check("interleaved retry while notification is processing is rejected with 409 conflict", losingRetry.status === 409 && losingJson.code === "INVALID_STATE")
-
-  // 5. Prove row remained in processing without being requeued
-  const afterLosing = await payload.findByID({ collection: "inquiry-records", id: dropDoc.id, overrideAccess: true, depth: 0 })
-  check("processing notification state was not reset or requeued by losing retry", afterLosing.notificationStatus === "processing")
-
-  // Settle row
-  await payload.update({
-    collection: "inquiry-records",
-    id: dropDoc.id,
-    data: { notificationStatus: "accepted", notificationAcceptedAt: new Date().toISOString(), notificationLockedAt: null } as never,
-    overrideAccess: true,
-    context: { inquirySystemOperation: true },
-  })
+  const claimedId = await withDeadline(workerClaimed.promise, "production worker claim")
+  let staleRetry: Response
+  try {
+    staleRetry = await api(`/api/admin/inquiries/${dropDoc.id}/retry`, retryOptions)
+  } finally {
+    releaseWorker.resolve()
+  }
+  const staleRetryJson = await staleRetry.json() as { code?: string }
+  const workerResult = await withDeadline(workerPromise, "worker SMTP completion")
+  const racedDoc = await payload.findByID({ collection: "inquiry-records", id: dropDoc.id, overrideAccess: true, depth: 0 })
+  const racedEvents = Array.isArray(racedDoc.notificationEvents) ? racedDoc.notificationEvents : []
+  check("production worker claimed the intended pending retry", String(claimedId) === String(dropDoc.id))
+  check("stale retry cannot reset a worker-owned processing row", staleRetry.status === 409 && staleRetryJson.code === "INVALID_STATE")
+  check(
+    "retry and worker race dispatches once with consistent attempts and audit events",
+    workerResult.status === "accepted" && capture.messages.length === beforeRaceMail + 1 && racedDoc.notificationStatus === "accepted" &&
+      racedDoc.notificationAttempts === 1 && racedEvents.filter((event) => event.status === "manual-retry").length === 1 &&
+      racedEvents.filter((event) => event.status === "accepted").length === 1,
+    `${workerResult.status}/${capture.messages.length - beforeRaceMail}/${racedDoc.notificationAttempts}`,
+  )
 
   // Normal failed retry check
   await payload.update({ collection: "inquiry-records", id: failedDoc!.id, data: { notificationStatus: "failed" } as never, overrideAccess: true, context: { inquirySystemOperation: true } })
@@ -404,6 +493,22 @@ try {
 } finally {
   app.kill("SIGTERM")
   capture.server.close()
+  await payload.db.drizzle.execute(sql`TRUNCATE TABLE "inquiry_records" RESTART IDENTITY CASCADE`)
+  await payload.db.drizzle.execute(sql`TRUNCATE TABLE "inquiry_rate_limits" RESTART IDENTITY CASCADE`)
+  await payload.db.drizzle.execute(sql`TRUNCATE TABLE "email_secrets" RESTART IDENTITY CASCADE`)
+  await payload.db.drizzle.execute(sql`
+    UPDATE "email_settings" SET
+      "notifications_enabled" = false,
+      "smtp_host" = NULL,
+      "smtp_port" = 587,
+      "encryption_mode" = 'starttls',
+      "smtp_username" = NULL,
+      "password_configured" = false,
+      "sender_name" = NULL,
+      "sender_email" = NULL,
+      "notification_recipient" = NULL
+  `)
+  await payload.db.drizzle.execute(sql`DELETE FROM "users" WHERE "email" IN (${adminEmail}, ${editorEmail})`)
   await new Promise((resolve) => setTimeout(resolve, 500))
 }
 
